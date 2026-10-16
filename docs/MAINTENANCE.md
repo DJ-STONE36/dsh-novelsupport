@@ -27,6 +27,7 @@ cd D:\documents\GitHub\my-project
 tools\run.cmd impl-selftest.mjs
 tools\run.cmd api-selftest.mjs
 tools\run.cmd client-selftest.mjs
+Remove-Item -Recurse -Force .verify   # 跑 live-check 之前先清掉这个目录
 tools\run.cmd live-check.mjs      # 需要宿主在跑；会在 .verify/ 里建临时项目
 
 # 改完客户端后必须重建（宿主半不需要，改动下次请求即生效）
@@ -35,6 +36,13 @@ tools\run.cmd build-client.mjs
 # 打包（它自己会先跑前三套，红了就拒绝打包）
 tools\run.cmd package-plugin.mjs
 ```
+
+> **`live-check.mjs` 不能连跑两次** ✓ 它会在 `<cwd>/.verify/` 建出一个真项目并写章节，
+> 而**第二次它会主动拒绝启动**（`process.exit(2)`）✓ 这是**保护**，不是缺陷 ✓
+> 它防的是有人把仓库根当参数传进去 —— 那会写进作者真实的 `novel/` ✓
+> 两个坑：拒绝信息打在 **stderr** 上 ✗ 不在 stdout ✓ 所以 `| Select-String 'OK|FAIL'`
+> 这类过滤会**什么都看不到**，只留下一个光秃秃的 `exit 2` ✓ 看起来像"跑了但没输出" ✗；
+> 于是**四套连跑**这个固定动作第二次会**假红** ✓ 不是代码坏了 ✓
 
 **`tools\run.cmd` 是什么**：这台机器上的 Node 不在 `PATH` 里，一切都要用固定的 node 路径启动 ✓ `run.cmd` 就是那层包装 ✓ 直接 `node xxx.mjs` 会找不到 node ✓
 
