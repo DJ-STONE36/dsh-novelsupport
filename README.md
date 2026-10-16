@@ -22,12 +22,15 @@
 dsh plugin --profile desktop add dsh-novelsupport
 
 # 从 GitHub（拉的是源码；本包已随仓库提供构建好的 lib/ 与 client/client.js，所以无需构建）
-dsh plugin --profile desktop add github:<owner>/dsh-novelsupport
+dsh plugin --profile desktop add github:DJ-STONE36/my-project
 
 # 从本地 checkout 或 tarball
 dsh plugin --profile desktop add ./dsh-novelsupport
 dsh plugin --profile desktop add ./dsh-novelsupport-0.1.0.tgz
 ```
+
+> **仓库名与包名不一致**（仓库 `my-project`，包 `dsh-novelsupport`）。安装命令以上面为准：
+> 包名决定 `node_modules` 里的目录名与插件行解析，仓库名只影响从哪里拉。
 
 装完**重启 DSH**，`GET /dsh-novel/health` 应返回 `{"ok":true}`，侧栏出现「小说」入口。
 （不想用 CLI 的话，`tools\package-plugin.mjs` 生成的 `INSTALL.md` 写的是手工解包进
