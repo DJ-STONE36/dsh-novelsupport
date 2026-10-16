@@ -225,10 +225,40 @@ try { return { path: createRequire(baseUrl).resolve(`${expectedPackageName}/pack
 
 **改完必须冷启动才算验证过** ✓ 刷新页面只重载渲染进程，**不重读插件注册** ✗
 
+### 三重身份：包名 / 插件 id / 客户端模块 id
+
+**2026-10-16 的第二次故障就是把这三个当成了一个** ✗ 现象是渲染进程
+`duplicate factory registration for "dsh-novel"` + 宿主 `web boot: 1 entry did not activate`
++ `dsh-novelsupport: import failed` ✓ 而它只是**改包名**引起的 ✓
+
+| 身份 | 取值 | 谁在用 | 改名的后果 |
+|---|---|---|---|
+| **包名** | `package.json` 的 `name` | npm 安装、宿主解析、**客户端图的键** | 随便改 ✓ |
+| **插件 id** | `cordis.patch.yml` 的 `insert[0].id` | 服务名、路由前缀、写头、技能命名空间、localStorage 键 | **别改** ✗ 改了会破坏文档与技能 |
+| **客户端模块 id** | bundle 里 `__ModuleLoader__.load({ id })` | 客户端模块系统 | **必须等于包名** ✗ |
+
+客户端的硬契约（`@deepseek-ai/dsh-client-modules`）：宿主**按包名**给每个包建一行，
+然后检查**这一行自己的 id** 是否注册上了 ✓ 所以
+
+- 用别的 id 注册 → 自己那行永远物化不了（`loaded without registering "<包名>"`）✗
+- 脚本因此再跑一次 → 撞上「同一个 id 只能注册一次」的守卫（`duplicate factory registration`）✗
+- 该行失败 → 渲染进程启动审计判定未激活 → **写 web-boot 崩溃日志** ✗
+
+**所以 `tools/build-client.mjs` 不再硬编码这个 id**，而是从 `package.json` 读包名 ✓
+`client-selftest` 的两条断言（`entry.id`、`plugin.name`）也改成跟包名走 ✓
+`impl-selftest` 里 `inserted.id === 'dsh-novel'` 那条**保持不变** —— 它守的是插件身份 ✓
+（改名前那两条断言都写死 `'dsh-novel'`，所以**改名时它们全绿、宿主却崩了** ✗ 这是教训：
+**守卫写死了被测对象的名字，就等于没有守卫** ✓）
+
 ---
 
 ## 7. 当前状态、已知限制
 
+- **插件当前是从 profile 的 `node_modules` 装的**（按包名解析，见第 6 节）✓
+  所以**改 `lib/**` 不会立刻生效** ✗ 要重新打包 + 重装 + 重启 ✓
+  开发期想恢复「改 `lib/**` 下次请求即生效」，用第 6 节的**绝对路径注册** ✓
+  两者**只能存在一个**，同时留着会报
+  `package … resolves from multiple active Loader sources` ✗
 - **Phase 1–6 都完成了** ✓ 详见 `README.md` 的 `## 当前状态`（那里是权威的清单 ✓ 本节只讲重点）
 - **agent 那条路是通的** ✓ 需要**两个条件**：
   1. 宿主打过补丁（让 `prompt` 的 `signal` 参数可选）—— `tools\apply-host-patch.cmd` ✓ 补丁已在真实安装里生效 ✓

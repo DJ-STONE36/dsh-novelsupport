@@ -10,7 +10,7 @@
  * copy rather than a second one.
  */
 window.__ModuleLoader__.load({
-  id: 'dsh-novel',
+  id: 'dsh-novelsupport',
   factory: (require) => {
     var module = { exports: {} }
     var exports = module.exports
@@ -12489,7 +12489,7 @@ exports.__test = {
   MapBranch,
 }
 
-    exports.name = 'dsh-novel'
+    exports.name = 'dsh-novelsupport'
     exports.inject = ['slots', 'layout']
     exports.apply = apply
     return module.exports

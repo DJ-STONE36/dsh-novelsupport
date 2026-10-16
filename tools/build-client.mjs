@@ -24,10 +24,31 @@ import { fileURLToPath, pathToFileURL } from 'node:url'
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SRC_DIR = join(ROOT, 'client', 'src')
 const OUT_FILE = join(ROOT, 'client', 'client.js')
-const PACKAGE_ID = 'dsh-novel'
+
+/**
+ * The client module id MUST equal the package name.
+ *
+ * The host composes one client-graph row per package, keyed by package name, and the loader
+ * then verifies that the row's OWN id registered: a bundle registering under any other id both
+ * fails its own row (`loaded without registering "<package>"`) and trips the duplicate guard
+ * (`duplicate factory registration for "<id>"`) when the script executes a second time — which
+ * is exactly what a web-boot crash on 2026-10-16 was. Deriving it here removes the drift: the
+ * name is changed in one place, `package.json`.
+ *
+ * This is NOT the plugin id. That stays `dsh-novel` (the route prefix, the write header, the
+ * localStorage keys, the skill namespace), and `cordis.patch.yml` still inserts under it.
+ */
+function packageName() {
+  const manifest = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
+  if (typeof manifest.name !== 'string' || manifest.name === '') {
+    throw new Error('package.json declares no name, so the client module id cannot be derived')
+  }
+  return manifest.name
+}
 
 /** Concatenate the parts into the bundle text. Throws on anything invalid. */
 export function buildBundle() {
+  const id = packageName()
   const parts = readdirSync(SRC_DIR)
     .filter((name) => name.endsWith('.js'))
     .sort()
@@ -59,7 +80,7 @@ export function buildBundle() {
  * copy rather than a second one.
  */
 window.__ModuleLoader__.load({
-  id: '${PACKAGE_ID}',
+  id: '${id}',
   factory: (require) => {
     var module = { exports: {} }
     var exports = module.exports
@@ -68,7 +89,7 @@ window.__ModuleLoader__.load({
     const h = react.createElement
 
 ${bodies.join('\n')}
-    exports.name = '${PACKAGE_ID}'
+    exports.name = '${id}'
     exports.inject = ['slots', 'layout']
     exports.apply = apply
     return module.exports

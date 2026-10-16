@@ -40,6 +40,17 @@ import * as hostPrompt from '../lib/impl/prompt.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
+/**
+ * The client module id is the PACKAGE name — not the plugin id.
+ *
+ * The host keys one client-graph row per package and then checks that the row's own id
+ * registered, so a bundle registering as anything else fails its own row and trips the
+ * duplicate guard when the script runs twice. Those assertions therefore read the name from
+ * `package.json` instead of naming it, which is what let them stay green through a rename
+ * that broke the boot (`duplicate factory registration`, 2026-10-16).
+ */
+const pkgName = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8')).name
+
 let passed = 0
 const failures = []
 
@@ -109,7 +120,7 @@ const plugin = entry?.exports
 
 check('the bundle registers exactly one factory under the package id', () => {
   assert(loaded.length === 1, `expected 1 load() call, got ${loaded.length}`)
-  assert(entry.id === 'dsh-novel', `wrong id: ${entry.id}`)
+  assert(entry.id === pkgName, `the client module id must equal the package name: got ${entry.id}, want ${pkgName}`)
 })
 
 check('the committed bundle is up to date with client/src', () => {
@@ -122,7 +133,7 @@ check('the committed bundle is up to date with client/src', () => {
 })
 
 check('the plugin exports name/inject/apply', () => {
-  assert(plugin.name === 'dsh-novel', `wrong name: ${plugin.name}`)
+  assert(plugin.name === pkgName, `the bundle's exports.name must be the package name: got ${plugin.name}, want ${pkgName}`)
   assert(Array.isArray(plugin.inject) && plugin.inject.includes('slots'), `bad inject: ${JSON.stringify(plugin.inject)}`)
   assert(typeof plugin.apply === 'function', 'apply is not a function')
 })
