@@ -4079,7 +4079,12 @@ function agentPhase(input) {
   const started = input?.started === true
   const error = input?.error ?? null
   if (error !== null) {
-    return error?.code === 'agent-prompt-unsupported' || error?.unsupported === true ? 'unsupported' : 'failed'
+    // Conditions the plugin recognises as "this host cannot be driven", as opposed to a run that
+    // simply failed. Both are reported BY NAME by the host half, so neither is a mystery screen.
+    const unsupported = error?.code === 'agent-prompt-unsupported'
+      || error?.code === 'agent-followup-missing'
+      || error?.unsupported === true
+    return unsupported ? 'unsupported' : 'failed'
   }
   if (!started) return 'idle'
   if (input?.result?.finished === true) return 'done'
@@ -4237,56 +4242,32 @@ function AgentDraftBody(props) {
 
   const heading = h('div', { style: { fontSize: '12px', opacity: 0.6, marginBottom: '6px' } }, '交给 agent 写这一章')
 
-  // THE HOST LIMITATION, told plainly — and told DIFFERENTLY depending on which one it is, because after the
-  // first patch they stopped being the same thing:
+  // THIS BUTTON NO LONGER NEEDS A HOST PATCH, and the screen must stop saying it does.
   //
-  //   host-signal-required    the host still demands an AbortSignal it cannot serialize → apply the patch
-  //   lossless-json-required  the session log refused the event because a field was not LOSSLESSLY serializable
+  // It used to drive the run through `sessionController.prompt(request, signal)`, which dereferenced a
+  // cancellation signal it could not be given, so the only way through was patching the installed app.
+  // The plugin now resolves the live agent and calls `followup(message)` on it — the host's own
+  // documented way to drive a conversation — so no patch is involved and the "go patch your host"
+  // screen was actively misleading.
   //
-  // The second used to be described here as a host defect. It was OURS: an omitted `requestId` became
-  // `source.rpcId = undefined` inside the event, and the log refuses an `undefined` field because JSON would
-  // drop it. So this text no longer accuses the host — it says what the rule is.
+  // What remains is a genuine refusal to write to the session log: a field whose value is `undefined`
+  // is rejected because JSON would drop the key. That is a host-side gap, not this project's data.
   if (phase === 'unsupported') {
-    const hostSignal = error?.reason === 'host-signal-required'
     return h(
       'div',
       { style: { marginBottom: '12px', padding: '10px', border: `1px solid ${muted}`, borderRadius: '6px' } },
       heading,
-      h(Note, {
-        tone: 'error',
-        text: hostSignal
-          ? '宿主还没打好补丁：sessionController.prompt 把取消信号当成必需参数，而它自己又不能被序列化。'
-          : '这次提问没能写进会话日志：事件里有一个字段不是「无损 JSON 可序列化」的。',
-      }),
+      h(Note, { tone: 'error', text: error?.message ?? '这次提问没能交给 agent。' }),
       h(
         'div',
         { style: { fontSize: '12px', opacity: 0.7, marginTop: '4px', lineHeight: 1.8 } },
-        hostSignal
-          ? '这不是本项目的数据或参数问题。修法是给宿主打一行补丁（需要先关掉 DSH）：'
-          : '会话日志拒绝的是值为 undefined 的字段（JSON 会把它丢掉，所以往返之后不是同一个值）。本插件每次提问都会生成 requestId，因此这条错误通常来自宿主侧缺失的字段。',
+        '会话日志只接受「无损 JSON 可序列化」的事件：值为 undefined 的字段会被拒绝（JSON 会把它丢掉，往返之后就不是同一个值）。' +
+          '本插件为每条消息生成 id，因此这条错误通常来自宿主侧缺失的字段，不是本项目的数据或参数问题。',
       ),
-      hostSignal
-        ? h(
-            'pre',
-            {
-              style: {
-                margin: '6px 0 0 0',
-                padding: '8px',
-                background: 'rgba(128,128,128,0.12)',
-                fontSize: '12px',
-                whiteSpace: 'pre-wrap',
-                wordBreak: 'break-all',
-              },
-            },
-            'tools\\apply-host-patch.cmd',
-          )
-        : null,
       h(
         'div',
         { style: { fontSize: '12px', opacity: 0.7, marginTop: '6px', lineHeight: 1.8 } },
-        hostSignal
-          ? '打完补丁、重启 DSH，这个按钮就会自己开始工作——这边不用再改任何东西。'
-          : '在它修好之前，这一章可以先用上面的「让 AI 写这一章」。',
+        '在它修好之前，这一章可以先用上面的「让 AI 写这一章」。',
       ),
     )
   }

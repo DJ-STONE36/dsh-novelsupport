@@ -153,7 +153,12 @@ tools\run.cmd package-plugin.mjs
 
 7. **会话事件要求「无损 JSON 可序列化」**
    比 JSON 严格：**值为 `undefined` 的字段会被拒绝**（JSON 会丢键，往返就不是同一个值）✓
-   `controller.prompt` **必须带 `requestId`** ✓（宿主用它构造 `source.rpcId`；漏了就是 `rpcId: undefined` → 整个事件写不进去 → 报成 `session/agent-busy` + "非 JSON 可序列化"）✓ **这条我误判成宿主缺陷过** ✗ 见第 7 节 ✓
+   踩过的实例：以前用 `controller.prompt({ requestId, … })`，漏传 `requestId` 就变成
+   `source.rpcId: undefined` → 整个事件写不进去 → 报成 `session/agent-busy` +
+   "非 JSON 可序列化" ✓ **这条我误判成宿主缺陷过** ✗ 见第 7 节 ✓
+   **现在改走 `agent.followup(message)`（见第 7 节）**，不再有 `requestId` ✓
+   但规则本身没变 ✓ 所以每条消息仍自带一个真字符串 `id`（`randomUUID()`）✓
+   凡是要写进会话事件的字段，都必须是**真实存在的值**，不能是 `undefined` ✓
 
 8. **没有浏览器，所以决定要下沉到纯函数**
    `renderToString` **不跑 effect、不跑 handler、没有盒模型** ✓ 所以 fetch 驱动的组件在测试里永远只能渲染 loading ✓
@@ -260,9 +265,26 @@ try { return { path: createRequire(baseUrl).resolve(`${expectedPackageName}/pack
   两者**只能存在一个**，同时留着会报
   `package … resolves from multiple active Loader sources` ✗
 - **Phase 1–6 都完成了** ✓ 详见 `README.md` 的 `## 当前状态`（那里是权威的清单 ✓ 本节只讲重点）
-- **agent 那条路是通的** ✓ 需要**两个条件**：
-  1. 宿主打过补丁（让 `prompt` 的 `signal` 参数可选）—— `tools\apply-host-patch.cmd` ✓ 补丁已在真实安装里生效 ✓
-  2. 调用**必须带 `requestId`** ✓（见第 4 节第 7 条 ✓ 有测试守住 ✓）
+- **agent 那条路是通的，而且不再需要宿主补丁** ✓（2026-10-16 改）✓
+  以前它走 `sessionController.prompt(request, signal)`，而宿主那句
+  `prompt(request, signal) { signal?.throwIfAborted(); … }` 会解引用一个我们给不了的
+  `signal` ✓ 唯一的出路是 `tools\apply-host-patch.cmd` 改**已安装的 app.asar** ✗
+  —— 这对本机可以，对**任何别人**都不行 ✓ 所以它一直是发行的拦路虎 ✓
+  **现在改成直接驱动 agent**：`await controller.resolveAgent(sessionId)` 拿活着的
+  agent（宿主自己的解析器 ✓ 也是 `prompt` 内部第一步 ✓ 会按需 resume 持久化会话），
+  再 `agent.followup({ id, role, content, source })` ✓ 文档对 `followup` 的说法是
+  「queues an ordinary next-turn prompt and wakes the driver」✓
+  于是**完全不碰那个被补丁的方法**：没有 `signal`、没有 `requestId`、没有 RPC 序列化边界 ✓
+  消息自带 `id`（`randomUUID()`），它才是日志里标识这条消息的东西 ✓
+  真机实测：`POST /agent/prompt` → 202 → `turn/start → user/message → assistant/attempt
+  → step/end → turn/end`，走完一整轮 ✓
+  - 守卫生效中：两套测试都断言 `controller.prompt(` **不得出现**（剥掉注释后搜）✓
+    种回验证过 —— 把它加回去，impl 与 client 双双变红 ✓
+  - `promptReceipts` / `promptRpcId` 两个只服务于旧路径的东西**已删** ✓
+  - 客户端那块「宿主还没打好补丁，去跑 apply-host-patch.cmd」的界面**已删** ✗
+    —— 那话现在是错的 ✓
+  - `tools\apply-host-patch.cmd` **留着**（第 6 节那个 asar 锁的坑还要用它）✓
+    但它**不再是本插件的前置条件** ✓ 补丁可以直接从安装里撤掉 ✓
 - **`docs/host-bug-session-controller-prompt.md` 有一段是我的误判** ✗：我曾把「漏传 `requestId`」写成宿主缺陷 ✓ 文档顶部已更正 ✓ **读那份文档时先读顶部的更正** ✓
 - **i18n 不做** ✓（作者只要中文 ✓ 已明确决定 ✓）
 - **有意推迟**：汇流变宽、图章/文字旋转、多行文字、六边形网格、导入 CSV/JSON、导出 Word（`office-docx` 技能可用 ✓）

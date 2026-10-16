@@ -3718,10 +3718,11 @@ check('the agent path reports what it is doing, and the host limitation', () => 
   // be a second writer on the same chapter. The author presses the button.
   assert(renderAgent({ phase: 'done', canTake: true }).includes('把结果放进编辑框'), 'the author decides when to take the result')
   assert(renderAgent({ phase: 'done', canTake: false }).includes('把结果放进编辑框') === false, 'and there is no button when there is no text')
-  // THE HOST LIMITATION SCREEN. It must not read as this project's bug, and it must carry the way out —
-  // per cause, which is asserted in full further down.
-  const blocked = renderAgent({ phase: 'unsupported', error: { reason: 'host-signal-required' } })
-  assert(blocked.includes('宿主还没打好补丁'), 'the unpatched host is named')
+  // THE REFUSAL SCREEN. It must say what the rule is, in the host's own words, and it must NOT send
+  // the author to patch their installed app — that instruction is obsolete, because the plugin drives
+  // the agent directly now. Asserted in full further down.
+  const blocked = renderAgent({ phase: 'unsupported', error: { message: '会话日志拒绝了这次写入' } })
+  assert(blocked.includes('会话日志拒绝了这次写入'), 'the refusal is reported in the host\'s words')
 
   // THE WIRING. The control must be in the chapter editor, beside the model path.
   const branchSource = readFileSync(join(ROOT, 'client', 'src', '70-branches.js'), 'utf8')
@@ -3757,31 +3758,33 @@ check('the agent path reports what it is doing, and the host limitation', () => 
   assert(!/disabled: sessionId === null/.test(agent), 'the button is not disabled for want of a session')
   assert(/if \(sessionId !== null\) payload\.sessionId = sessionId/.test(agent), 'and a missing session is omitted, not sent as undefined')
 
-  // THE 501 SCREEN MUST TELL THE TWO CAUSES APART. After the first patch they stopped being the same
-  // problem: one is the host's unpatched signal check, the other is the session log's lossless-JSON rule —
-  // and that second one turned out to be ours (a missing `requestId`), so the screen must not accuse the host
-  // for it. Showing "apply the patch" for the second would tell the author to run a command already applied.
-  const hostSignal = renderAgent({ phase: 'unsupported', error: { reason: 'host-signal-required' } })
-  const lossless = renderAgent({ phase: 'unsupported', error: { reason: 'lossless-json-required' } })
-  assert(hostSignal.includes('apply-host-patch.cmd'), 'the signal cause prints the patch command')
-  assert(hostSignal.includes('不是本项目'), 'and says it is not this project\'s fault')
-  assert(!lossless.includes('apply-host-patch.cmd'), 'the lossless cause does NOT — that patch is already applied')
-  assert(lossless.includes('无损 JSON'), 'it names the actual rule that was broken')
-  assert(lossless.includes('requestId'), 'and the field this plugin now always sends')
-  assert(!/宿主自己构造|宿主拒绝/.test(lossless), 'and it must NOT blame the host: this cause was our own missing field')
-  assert(hostSignal !== lossless, 'the two screens differ')
-  // The route must name the cause it found, or the screen cannot tell them apart.
-  assert(/reason: hostSignal \? 'host-signal-required' : 'lossless-json-required'/.test(router), 'the route reports which cause it found')
-  assert(/inbox\\?\/spliced/.test(router), 'and detects the lossless-JSON refusal by name')
-  // AND IT MUST BLAME THE RIGHT PARTY. The lossless-JSON cause was OURS — an omitted `requestId` became
-  // `source.rpcId = undefined` — and the route's message said the host had built an unserializable event. That
-  // misattribution is asserted against here so it cannot come back.
+  // THE UNSUPPORTED SCREEN MUST NOT SEND THE AUTHOR TO PATCH THEIR HOST ANY MORE.
+  //
+  // It used to print `tools\apply-host-patch.cmd`, because the run went through
+  // `sessionController.prompt(request, signal)`, which dereferenced a signal it could not be given.
+  // The plugin now resolves the live agent and calls `followup(message)` on it, so no patch is
+  // involved — and a screen that still told authors to patch their installed app would be worse than
+  // useless, it would be wrong. Same for blaming the host for a field THIS plugin used to omit.
+  const refused = renderAgent({ phase: 'unsupported', error: { message: '会话日志拒绝了这次写入', reason: 'lossless-json-required' } })
+  assert(refused.includes('会话日志拒绝了这次写入'), 'the refused write is reported in the host\'s words')
+  assert(refused.includes('无损 JSON'), 'and the rule that was broken is named')
+  assert(!refused.includes('apply-host-patch.cmd'), 'the patch command must NOT be printed: no host patch is needed')
+  assert(!refused.includes('还没打好补丁'), 'and the screen must not claim the host is unpatched')
+  assert(!/宿主自己构造|宿主拒绝/.test(refused), 'and must not blame the host for an event it did not build')
+  // `agent-followup-missing` is the other way a host can refuse, and it must reach the same named
+  // screen rather than the generic failure one.
+  assert(
+    phase({ started: true, status: { running: false }, error: { code: 'agent-followup-missing' } }) === 'unsupported',
+    'a host whose agent cannot be driven gets the named condition too',
+  )
+  // And the route must still detect the lossless-JSON refusal by name, since that explanation stays.
+  assert(/inbox\\?\/spliced/.test(router), 'the route detects the lossless-JSON refusal by name')
   assert(!/宿主自己构造的事件|它自己构造的事件里有无法序列化/.test(router), 'the lossless cause must not accuse the host')
-  // The plugin must send ONE argument: after the patch the signal is optional, and a signal can never
-  // serialize. A second argument here would resurrect the original defect.
-  assert(/await controller\.prompt\(\{/.test(router), 'prompt is called with a single options object')
-  assert(!/controller\.prompt\([\s\S]{0,400}?run\.signal/.test(router), 'and never with run.signal')
-  assert(!/^\s+run\.signal,$/m.test(router), 'nor as a trailing second argument')
+  // THE CALL SHAPE THAT MAKES THE PATCH UNNECESSARY, pinned here because a revert would silently
+  // reintroduce a distribution blocker rather than a visible failure.
+  assert(!/controller\.prompt\(/.test(router.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')), 'the patched prompt must not be called')
+  assert(/await controller\.resolveAgent\(sessionId\)/.test(router), 'the agent comes from resolveAgent instead')
+  assert(/agent\.followup\(\{/.test(router), 'and is driven by followup')
   // The local abort controller stays: cancelling goes through controller.cancel, which is what works.
   assert(/controller\.cancel\(sessionId\)/.test(router), 'cancel goes through controller.cancel')
 })

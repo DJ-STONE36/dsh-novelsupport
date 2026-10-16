@@ -1345,27 +1345,35 @@ check('the manuscript is assembled in narrative order, and nothing is dropped si
   assert(manuscript.manuscriptName('书', 'exe') === '书.exe', 'and is passed through when it is a plain token')
 })
 
-check('the agent prompt sends requestId, without which the session log refuses the event', () => {
-  // THE BUG THAT LOOKED LIKE A HOST DEFECT FOR HOURS.
+check('the agent is driven by the session resolver and followup, not by the patched prompt', () => {
+  // WHY THIS SHAPE. `sessionController.prompt(request, signal)` dereferences its second parameter
+  // before any null check — `signal?.throwIfAborted()` — and that parameter exists only because the
+  // RPC layer declares it as a framework cancellation argument. Calling it in-process with one
+  // argument threw `Cannot read properties of undefined`, and the only way through was
+  // `tools/patch-asar.mjs`, a patch to the INSTALLED application. That is fine on this machine and
+  // impossible to ship.
   //
-  // The host builds the inserted message's `source` as `{ kind: 'user', rpcId: request.requestId }`, and the
-  // session log only accepts LOSSLESSLY JSON-serializable data — a field whose value is `undefined` is refused,
-  // because JSON would drop the key and the round trip would not be the same value. So omitting `requestId`
-  // made the whole `agent/inbox/spliced` event unwritable, surfacing as
-  // `code: session/agent-busy` with `reason: ... carries non-JSON-serializable data` — which reads like the
-  // host failing to serialize its OWN event, and was reported to the host as exactly that.
+  // `resolveAgent(sessionId)` is the host's own resolver — the first thing `prompt` itself calls —
+  // and the returned agent's `followup(message)` is the documented way to drive a conversation. So
+  // the plugin never touches the patched method, and no host patch is required to ship it.
   //
-  // Asserted against the source rather than behaviourally: the call needs a live sessionController, and the
-  // thing that must not regress is the SHAPE of the request.
+  // Asserted against the source, because the call needs a live sessionController and what must not
+  // regress is the SHAPE of the call.
   const source = readFileSync(join(ROOT, 'lib', 'impl', 'router.js'), 'utf8')
-  assert(/requestId: promptRpcId\(\)/.test(source), 'the prompt must carry a requestId')
-  assert(/function promptRpcId\(\)/.test(source) && /return `dsh-novel-/.test(source), 'and mint it as a plain string')
-  // ONE ARGUMENT: after the patch the signal is optional, and a signal can never be serialized.
-  assert(!/controller\.prompt\([\s\S]{0,400}?run\.signal/.test(source), 'and never pass the abort signal')
-  // `source` is the HOST's to build — sending our own is not what it reads, so its absence is the honest shape.
-  assert(!/source: \{ kind: 'user'/.test(source), 'and leave `source` to the host, which builds it from requestId')
-  // The receipt is kept, because "accepted" and "running" are different things and only one of them is a turn.
-  assert(/promptReceipts\.set\(sessionId, receipt/.test(source), 'the service acknowledgement is kept')
+  assert(/await controller\.resolveAgent\(sessionId\)/.test(source), 'the agent must be resolved through the session controller')
+  assert(/agent\.followup\(\{/.test(source), 'and driven by followup')
+  assert(/id: randomUUID\(\)/.test(source), 'each message carries its own id — that is what identifies it in the log')
+  assert(/source: \{ kind: 'user' \}/.test(source), 'and its own `source`, which followup takes directly')
+  // THE WHOLE POINT: the patched method is not called at all.
+  assert(
+    !/controller\.prompt\(/.test(source.replace(/\/\/[^\n]*/g, '').replace(/\/\*[\s\S]*?\*\//g, '')),
+    'the patched sessionController.prompt must not be called anywhere',
+  )
+  // `followup` returns nothing, so there is no receipt to keep and no RPC id to mint.
+  assert(!/promptReceipts/.test(source), 'the old prompt receipt map is gone with the call that produced it')
+  assert(!/promptRpcId/.test(source), 'and so is the RPC id helper')
+  // A host whose agent cannot be driven must say so plainly instead of failing obscurely.
+  assert(/agent-followup-missing/.test(source), 'a missing followup is reported as its own condition')
   // `inspect` answers `{ meta, inheritedEventCount, events }` when the session is ATTACHED and a different shape
   // when it is not — so the result route reports which one came back instead of leaving an empty transcript a
   // mystery. This is the same two-shapes-one-name trap as `body.items` vs `body.sessions`.
