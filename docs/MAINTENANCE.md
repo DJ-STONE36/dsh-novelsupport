@@ -236,18 +236,21 @@ try { return { path: createRequire(baseUrl).resolve(`${expectedPackageName}/pack
 - **`docs/host-bug-session-controller-prompt.md` 有一段是我的误判** ✗：我曾把「漏传 `requestId`」写成宿主缺陷 ✓ 文档顶部已更正 ✓ **读那份文档时先读顶部的更正** ✓
 - **i18n 不做** ✓（作者只要中文 ✓ 已明确决定 ✓）
 - **有意推迟**：汇流变宽、图章/文字旋转、多行文字、六边形网格、导入 CSV/JSON、导出 Word（`office-docx` 技能可用 ✓）
-- **地图的显示缺省值仍会被写回文档** ✗（2026-10-16 修了一半，**另一半还没修**）✓
-  已经修好的那半：`selectMap` 以前传 `mapMaps(current)` 给 `withMaps`，而 `mapMaps` 会跑
-  `normalizeMap` 补上 `pinSize`/`labelSize`/`theme`/`canvas`；于是**只是切换看哪张地图**
-  就把缺省值写进每一张地图 ✓（`schema.js` 给新项目的地图有 `labelSize: 34` 但没有 `pinSize`，
-  所以在地图列表上点第一下就会写进 `"pinSize": 14`）✓ 现在传 `null` 表示「列表不变」✓
-  **还没修的那半**：`normalizeMap` 在**读**的时候就把缺省值填进了 map 对象，而
-  `mapRenameMap`（`:2866`）、`mapPathUpdate` 等一批编辑辅助函数都是
-  `{ ...map, changed }` ✓ 所以**改一个字段会把它同级的其它缺省值一起写盘** ✗
-  （`normalizePath` 同理：`{ ...path, {...changes} }` 会把 `color`/`width`/`taper`/`dash`
-  的兜底值写进去 ✓ 同一个文件里 `mapStrokes`/pins 是**正确**做法：存 `null`、显示时兜底 ✓）
-  修法方向：让这些辅助函数只把**真正改动的字段**合成到**原始** map 上 ✓
-  别让显示用的规范化结果经 `withMaps` 落盘 ✓ 参考第 4 节第 2 条的两个视图纪律 ✓
+- **地图：显示缺省值写回文档 —— 地图级已修，路径级还没修** ✗（2026-10-16）✓
+  **已修**（两处，都有种回验证过）：
+  1. `selectMap` 以前传 `mapMaps(current)` 给 `withMaps`，而 `mapMaps` 会跑 `normalizeMap`
+     补上 `pinSize`/`labelSize`/`theme`/`canvas`；于是**只是切换看哪张地图**就把缺省值写进
+     每一张地图 ✓（`schema.js` 给新项目的地图有 `labelSize: 34` 但没有 `pinSize`，所以在
+     地图列表上点第一下就会写进 `"pinSize": 14`）✓ 现在传 `null` 表示「这份列表不变」✓
+  2. 编辑一个字段也会把同级的其它缺省值一起写盘 ✓ 因为 `mapRenameMap`、`mapSetLabelSize`
+     之流都是 `{ ...normalizedMap, changed }` ✓ 现在 `withMaps` 用 `reconcileMap` 把改动
+     合并到**文档里存的那份**上：只有与规范化结果**不同**的字段才写 ✓ 作者没设过的字段
+     因为「不存在」而不算改动，于是保持不存在 ✓
+  **还没修**：列表是整份替换的，而 `normalizePath`（`:1741-1744`）同样会填
+  `color`/`width`/`taper`/`dash` ✓ 所以**改一条河道仍会把它的样式缺省值写盘** ✗
+  `client-selftest` 里有一条断言**显式钉住这个已知泄漏**（搜 `KNOWN LEAK`）✓
+  将来若把列表改成逐元素调和，那条断言会失败 —— 那是**故意的**，请连同它一起更新 ✓
+  同一个文件里 `mapStrokes`/pins 是**正确**做法：存 `null`、显示时兜底 ✓ 参考第 4 节第 2 条 ✓
 
 ---
 

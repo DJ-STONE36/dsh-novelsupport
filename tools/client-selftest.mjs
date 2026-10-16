@@ -530,6 +530,56 @@ check('switching which map is shown never edits the maps', () => {
   // And a document with no maps at all must not gain any.
   assert(mapHelpers.withMaps({}, null, 'map-1').maps.length === 0, 'a null list on an empty document stays empty')
 
+  // EDITING one field must not persist the OTHER display defaults alongside it. This is the same
+  // defect one step further in: `updateMaps` hands the mutator `mapMaps(...)`, so `mapRenameMap` and
+  // friends build `{ ...normalizedMap, <change> }` and the write carried every filled-in default.
+  //
+  // map-2 is the interesting one: the seed gives it no `theme` at all, so normalisation invents one and
+  // a rename must not smuggle it in.
+  const renamed = mapHelpers.withMaps(seeded, mapHelpers.mapRenameMap(mapHelpers.mapMaps(seeded), 'map-2', '新名字'), 'map-1')
+  const edited = renamed.maps.find((m) => m.id === 'map-2')
+  assert(edited.name === '新名字', 'the rename must land')
+  assert(!('pinSize' in edited), `renaming must not add pinSize, got ${JSON.stringify(edited.pinSize)}`)
+  assert(!('theme' in edited), `nor theme, which the seed never set on that map, got ${JSON.stringify(edited.theme)}`)
+  assert(!('labelFixed' in edited), 'nor labelFixed')
+  assert(edited.canvas.width === 800, 'the canvas the author did set is kept')
+  // The map that was NOT edited must come through byte for byte, defaults and all.
+  const untouchedMap = renamed.maps.find((m) => m.id === 'map-1')
+  assert(JSON.stringify(untouchedMap) === JSON.stringify(seeded.maps[0]), `the OTHER map must not be touched:\n  before ${JSON.stringify(seeded.maps[0])}\n  after  ${JSON.stringify(untouchedMap)}`)
+
+  // A map created from nothing still gets the full normalised shape — there is no stored value to
+  // preserve for it, and the UI needs something to draw.
+  const added = mapHelpers.withMaps(seeded, [...mapHelpers.mapMaps(seeded), ...mapHelpers.mapMaps({ maps: [{ id: 'map-3', name: '三' }] })], 'map-3')
+  const fresh = added.maps.find((m) => m.id === 'map-3')
+  assert(fresh !== undefined, 'the new map is written')
+  assert(fresh.pinSize === 14, 'a brand-new map still gets the full shape, defaults included')
+
+  // THE REMAINING LEAK, pinned so it is a known quantity rather than a surprise. Map-level scalars are
+  // reconciled above, but a LIST is taken from the edit as a whole, and `normalizePath` fills
+  // `color`/`width`/`taper`/`dash` the same way `normalizeMap` fills `pinSize`. So editing one course
+  // still writes the other three defaults for it. Asserting the leak keeps this honest: if the list
+  // reconciliation is ever made element-wise, THIS assertion fails and must be updated deliberately.
+  const withCourse = {
+    version: 2,
+    activeMapId: 'map-1',
+    maps: [{ id: 'map-1', name: '图', canvas: { width: 100, height: 100 }, strokes: [], shapes: [], pins: [], texts: [], stamps: [],
+      paths: [{ id: 'path-1', kind: 'river', points: [{ x: 0, y: 0 }, { x: 1, y: 1 }] }] }],
+  }
+  const editedCourse = mapHelpers.withMaps(
+    withCourse,
+    mapHelpers.mapMaps(withCourse).map((entry) =>
+      entry.id === 'map-1' ? { ...entry, paths: mapHelpers.mapPathUpdate(entry.paths, 'path-1', { name: '改名' }) } : entry,
+    ),
+    'map-1',
+  )
+  const course = editedCourse.maps[0].paths[0]
+  assert(course.name === '改名', 'the course rename must land')
+  assert(course.points.length === 2, 'and its points must survive')
+  assert(
+    'color' in course && 'width' in course && 'taper' in course && 'dash' in course,
+    `KNOWN LEAK: a course edit still writes its style defaults; if this now fails, list reconciliation became element-wise — update this assertion`,
+  )
+
   // AND THE WIRING, which is what actually did the damage. The assertions above pass with the bug in
   // place, because they exercise `withMaps` rather than the handler that feeds it: `selectMap` passed
   // `mapMaps(current)` — and since it edits no map, that writes back exactly the list it was handed, so

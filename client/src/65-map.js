@@ -344,6 +344,61 @@ function resolveActiveMap(doc, activeId) {
 }
 
 /**
+ * Reconcile one edited map with the version stored in the document.
+ *
+ * THE OTHER HALF OF THE DISPLAY/DATA SPLIT. `normalizeMap` runs on READ and fills display defaults
+ * (`pinSize`, `labelSize`, `theme`, a default canvas and background) into the object the UI works with.
+ * Every map-field helper then builds `{ ...normalizedMap, <the change> }`, so writing that object back
+ * persisted all the filled-in defaults beside the one field the author actually touched — one edit, and
+ * the file gained `"pinSize": 14` plus whatever else the map had been missing.
+ *
+ * So the STORED map is the base, and only fields that differ from the normalised view are taken from the
+ * edit. A field the author never set is absent from the base, is not a change, and therefore stays
+ * absent. A field they did set equals the base, is not a change, and is carried over untouched.
+ *
+ * Lists are taken from the edit as a whole when they differ at all (a drawn stroke, an added pin): those
+ * are the author's work, and the elements reaching here already arrive normalised, so writing them needs
+ * no further reconciliation. Nested records are merged recursively for the same reason as the top level.
+ */
+const MAP_MUTABLE_FIELDS = ['name', 'canvas', 'background', 'strokes', 'shapes', 'paths', 'pins', 'texts', 'stamps', 'theme', 'labelSize', 'labelFixed']
+
+/** Is this a plain record, as opposed to an array, a scalar, or null? */
+function plainRecord(value) {
+  return value !== null && typeof value === 'object' && !Array.isArray(value)
+}
+
+function sameStoredValue(a, b) {
+  if (a === b) return true
+  if (plainRecord(a) && plainRecord(b)) {
+    const aKeys = Object.keys(a)
+    const bKeys = Object.keys(b)
+    if (aKeys.length !== bKeys.length || !aKeys.every((key) => key in b)) return false
+    return aKeys.every((key) => sameStoredValue(a[key], b[key]))
+  }
+  if (Array.isArray(a) && Array.isArray(b)) {
+    return a.length === b.length && a.every((entry, at) => sameStoredValue(entry, b[at]))
+  }
+  return false
+}
+
+function reconcileMap(stored, edited) {
+  if (!plainRecord(stored) || !plainRecord(edited)) return edited
+  const out = { ...stored }
+  for (const key of MAP_MUTABLE_FIELDS) {
+    if (!Object.hasOwn(edited, key)) continue
+    const next = edited[key]
+    if (!Object.hasOwn(stored, key)) {
+      // The stored map never had it, so it is there only because normalisation filled it in. Keep it
+      // out unless the helper really changed it — which, with nothing to compare against, we cannot know.
+      continue
+    }
+    if (sameStoredValue(stored[key], next)) continue
+    out[key] = next
+  }
+  return out
+}
+
+/**
  * Rebuild the document around a new list of maps.
  *
  * THE LEGACY KEYS ARE DROPPED, and that is the point. Keeping them produced documents holding BOTH
@@ -362,11 +417,22 @@ function resolveActiveMap(doc, activeId) {
  * value. Switching which map you are LOOKING at therefore used to write those defaults out — and
  * `schema.js` seeds a new project's map without `pinSize`, so the first click on the map list added
  * `"pinSize": 14` to the author's file.
+ *
+ * A list that IS being written is reconciled against the stored maps by `reconcileMap`, for the same
+ * reason one step further in: an edit arrives as `{ ...normalizedMap, <change> }`, and writing that
+ * wholesale carried every default along with the change.
  */
 function withMaps(doc, maps, activeMapId) {
   const base = isRecord(doc) ? doc : {}
+  const stored = objectList(base.maps)
   // null = keep the stored list byte for byte, defaults and all.
-  const list = maps === null ? objectList(base.maps) : objectList(maps)
+  const list =
+    maps === null
+      ? stored
+      : objectList(maps).map((map) => {
+          const was = stored.find((entry) => entry.id === map.id)
+          return was === undefined ? map : reconcileMap(was, map)
+        })
   const active = typeof activeMapId === 'string' && list.some((map) => map.id === activeMapId)
     ? activeMapId
     : list.length > 0
