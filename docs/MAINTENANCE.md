@@ -23,7 +23,7 @@
 ```powershell
 cd D:\documents\GitHub\my-project
 
-# 跑四套测试（411 项，约 30 秒）。全绿才动代码。
+# 跑四套测试（413 项，约 30 秒）。全绿才动代码。
 tools\run.cmd impl-selftest.mjs
 tools\run.cmd api-selftest.mjs
 tools\run.cmd client-selftest.mjs
@@ -176,7 +176,7 @@ tools\run.cmd package-plugin.mjs
   （例：`ChapterBody` 的 `list`/`editor` 槽位如果不是字面量也不是它能解析的局部赋值 → **直接 FAIL** ✓）
 - 断言要**对着源码/真实路由**核对 ✓ 不要对着"合理形状" ✓
 
-**测试分布**：`impl` 88 项（纯逻辑）· `api` 72 项（真实 HTTP）· `client` 241 项（纯函数 + 源码结构审计）· `live` 10 项（真的建项目、写章节、写盘再读回）
+**测试分布**：`impl` 88 项（纯逻辑）· `api` 72 项（真实 HTTP）· `client` 243 项（纯函数 + 源码结构审计）· `live` 10 项（真的建项目、写章节、写盘再读回）
 
 ---
 
@@ -236,6 +236,18 @@ try { return { path: createRequire(baseUrl).resolve(`${expectedPackageName}/pack
 - **`docs/host-bug-session-controller-prompt.md` 有一段是我的误判** ✗：我曾把「漏传 `requestId`」写成宿主缺陷 ✓ 文档顶部已更正 ✓ **读那份文档时先读顶部的更正** ✓
 - **i18n 不做** ✓（作者只要中文 ✓ 已明确决定 ✓）
 - **有意推迟**：汇流变宽、图章/文字旋转、多行文字、六边形网格、导入 CSV/JSON、导出 Word（`office-docx` 技能可用 ✓）
+- **地图的显示缺省值仍会被写回文档** ✗（2026-10-16 修了一半，**另一半还没修**）✓
+  已经修好的那半：`selectMap` 以前传 `mapMaps(current)` 给 `withMaps`，而 `mapMaps` 会跑
+  `normalizeMap` 补上 `pinSize`/`labelSize`/`theme`/`canvas`；于是**只是切换看哪张地图**
+  就把缺省值写进每一张地图 ✓（`schema.js` 给新项目的地图有 `labelSize: 34` 但没有 `pinSize`，
+  所以在地图列表上点第一下就会写进 `"pinSize": 14`）✓ 现在传 `null` 表示「列表不变」✓
+  **还没修的那半**：`normalizeMap` 在**读**的时候就把缺省值填进了 map 对象，而
+  `mapRenameMap`（`:2866`）、`mapPathUpdate` 等一批编辑辅助函数都是
+  `{ ...map, changed }` ✓ 所以**改一个字段会把它同级的其它缺省值一起写盘** ✗
+  （`normalizePath` 同理：`{ ...path, {...changes} }` 会把 `color`/`width`/`taper`/`dash`
+  的兜底值写进去 ✓ 同一个文件里 `mapStrokes`/pins 是**正确**做法：存 `null`、显示时兜底 ✓）
+  修法方向：让这些辅助函数只把**真正改动的字段**合成到**原始** map 上 ✓
+  别让显示用的规范化结果经 `withMaps` 落盘 ✓ 参考第 4 节第 2 条的两个视图纪律 ✓
 
 ---
 
@@ -267,5 +279,5 @@ try { return { path: createRequire(baseUrl).resolve(`${expectedPackageName}/pack
 
 **为什么这样比「把整个会话留着」可靠**：
 - 会话会被**压缩**（这个项目已经被压缩过一次 ✓ 细节在那一步就丢了 ✗）✓ 而且不能无限延长 ✓
-- 而**测试、注释、文档活在仓库里** ✓ 411 项检查把每一个决定和每一个踩过的坑都编码进去了 ✓ 改错了会**失败** ✓
+- 而**测试、注释、文档活在仓库里** ✓ 413 项检查把每一个决定和每一个踩过的坑都编码进去了 ✓ 改错了会**失败** ✓
 - 所以：**仓库是记忆 ✓ 会话是工作台** ✓ 工作台可以换 ✓ 记忆不会丢 ✓

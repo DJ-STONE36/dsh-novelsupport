@@ -354,10 +354,19 @@ function resolveActiveMap(doc, activeId) {
  *
  * Everything else in the document is preserved: a project may hold keys this plugin knows nothing
  * about, and dropping those would be silent data loss of a different kind.
+ *
+ * `maps` may be `null`, which means THE LIST IS NOT CHANGING — reuse the document's own array. That
+ * case exists because normalisation substitutes for display and must never reach the file: the list
+ * the UI holds has `pinSize`/`labelSize`/`theme` filled in by `normalizeMap`, so writing it back turns
+ * a display default into a stored one and makes "the author chose 14" and "nobody chose" the same
+ * value. Switching which map you are LOOKING at therefore used to write those defaults out — and
+ * `schema.js` seeds a new project's map without `pinSize`, so the first click on the map list added
+ * `"pinSize": 14` to the author's file.
  */
 function withMaps(doc, maps, activeMapId) {
   const base = isRecord(doc) ? doc : {}
-  const list = objectList(maps)
+  // null = keep the stored list byte for byte, defaults and all.
+  const list = maps === null ? objectList(base.maps) : objectList(maps)
   const active = typeof activeMapId === 'string' && list.some((map) => map.id === activeMapId)
     ? activeMapId
     : list.length > 0
@@ -3672,7 +3681,10 @@ function MapBranch(props) {
     drag.current = null
     // Reset the local view so the newly chosen map uses its OWN stored viewpoint.
     setViewState(null)
-    map.update((current) => withMaps(current, mapMaps(current), id))
+    // `null` = the LIST is not changing, only which one is shown. Passing the normalised list here
+    // would write the display defaults (`pinSize`, `labelSize`, ...) into every map, so merely looking
+    // around the project edited it.
+    map.update((current) => withMaps(current, null, id))
   }
 
   const addMap = () => {

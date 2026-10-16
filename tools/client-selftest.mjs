@@ -43,6 +43,10 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 let passed = 0
 const failures = []
 
+// Filled by the handover-doc check below and reconciled once every case has run.
+let documentedBreakdown = null
+let documentedTotal = null
+
 function check(name, fn) {
   try {
     fn()
@@ -488,6 +492,61 @@ check('the active map is resolved, and the document is rebuilt around the list',
   // An active id that is not in the list must not be stored, or the next read shows the wrong map.
   assert(mapHelpers.withMaps(doc, [{ id: 'map-9' }], 'nope').activeMapId === 'map-9', 'a stale active id falls back to the first')
   assert(mapHelpers.withMaps(doc, [], 'map-1').activeMapId === null, 'an empty list has no active map')
+})
+
+check('switching which map is shown never edits the maps', () => {
+  // THE INVARIANT: normalisation substitutes for DISPLAY and must never reach the file. It matters
+  // because the two states become indistinguishable once written — "the author chose 14" and "nobody
+  // ever chose" read back the same — and because it silently edits the author's document.
+  //
+  // This was live: `selectMap` called `withMaps(current, mapMaps(current), id)`, and `mapMaps` runs every
+  // map through `normalizeMap`, which fills `pinSize`/`labelSize`/`theme`/`canvas`. So merely SWITCHING
+  // WHICH MAP YOU LOOK AT wrote those defaults out. `schema.js` seeds a new project's map with
+  // `labelSize: 34` but NO `pinSize`, so the very first click on the map list added `"pinSize": 14`.
+  const seeded = {
+    version: 2,
+    activeMapId: 'map-1',
+    maps: [
+      { id: 'map-1', name: '地图 1', canvas: { width: 2000, height: 1500 }, background: { kind: 'blank', asset: null }, strokes: [], shapes: [], paths: [], pins: [], texts: [], stamps: [], theme: 'plain', labelSize: 34, labelFixed: false },
+      { id: 'map-2', name: '地图 2', canvas: { width: 800, height: 600 }, strokes: [], shapes: [], paths: [], pins: [], texts: [], stamps: [] },
+    ],
+  }
+
+  // Reading still supplies the defaults — the UI must be able to draw a map that omits them.
+  const read = mapHelpers.mapMaps(seeded)
+  assert(read[0].pinSize === 14, `reading must still default pinSize for display, got ${read[0].pinSize}`)
+  assert(read[1].pinSize === 14, 'and for a map that never had the field')
+
+  // What `selectMap` does now: the list is not changing, only which one is shown.
+  const switched = mapHelpers.withMaps(seeded, null, 'map-2')
+  assert(switched.activeMapId === 'map-2', 'the chosen map is remembered')
+  assert(JSON.stringify(switched.maps) === JSON.stringify(seeded.maps), `switching maps must not rewrite them:\n  before ${JSON.stringify(seeded.maps)}\n  after  ${JSON.stringify(switched.maps)}`)
+  assert(!('pinSize' in switched.maps[0]), `pinSize must not be written into the document, got ${JSON.stringify(switched.maps[0].pinSize)}`)
+  assert(switched.maps[1].labelSize === undefined, 'nor may labelSize be invented on a map that had none')
+
+  // An unknown active id still falls back, so a null list cannot leave the document pointing nowhere.
+  const stale = mapHelpers.withMaps(seeded, null, 'gone')
+  assert(stale.activeMapId === 'map-1', 'a stale active id falls back to the first map')
+  // And a document with no maps at all must not gain any.
+  assert(mapHelpers.withMaps({}, null, 'map-1').maps.length === 0, 'a null list on an empty document stays empty')
+
+  // AND THE WIRING, which is what actually did the damage. The assertions above pass with the bug in
+  // place, because they exercise `withMaps` rather than the handler that feeds it: `selectMap` passed
+  // `mapMaps(current)` — and since it edits no map, that writes back exactly the list it was handed, so
+  // the sentinel and the normalised list are indistinguishable from the outside. Only the call site
+  // tells them apart. Proven by replanting the bug: the assertions above stay green and this one fails.
+  const mapSource = readFileSync(join(ROOT, 'client', 'src', '65-map.js'), 'utf8')
+  const selectAt = mapSource.indexOf('const selectMap = (id) => {')
+  assert(selectAt !== -1, 'the map picker handler must exist')
+  const selectBody = mapSource.slice(selectAt, mapSource.indexOf('\n  const addMap', selectAt))
+  assert(
+    /withMaps\(current, null, id\)/.test(selectBody),
+    'selectMap must pass the null sentinel, so looking at another map cannot write display defaults into it',
+  )
+  assert(
+    !/withMaps\(current, mapMaps\(current\)/.test(selectBody),
+    'and must not pass the normalised list, which writes pinSize/labelSize into every map',
+  )
 })
 
 check('each map operation touches exactly one map', () => {
@@ -6625,9 +6684,49 @@ check('mintId never emits a doubled separator', () => {
   }
 })
 
+check('MAINTENANCE.md still reports the real test distribution', () => {
+  // The doc calls itself the authoritative checklist for whoever takes over next, and it states both a
+  // total and a per-suite breakdown. Those numbers drifted silently — they said 409 (impl 86) while the
+  // suites actually ran 411 — and a stale count is worse than none, because it makes a real gap look like
+  // a rounding difference. Parse both statements here; reconcile them against reality at the end of the
+  // run, which is the only place this file's own real count exists.
+  const doc = readFileSync(join(ROOT, 'docs', 'MAINTENANCE.md'), 'utf8')
+  const dist = doc.match(/`impl`\s*(\d+)\s*项[^·]*·\s*`api`\s*(\d+)\s*项[^·]*·\s*`client`\s*(\d+)\s*项[^·]*·\s*`live`\s*(\d+)\s*项/)
+  assert(dist !== null, 'MAINTENANCE.md must still state the four-suite distribution')
+  documentedBreakdown = dist.slice(1).map(Number)
+
+  const totalLine = doc.match(/#\s*跑四套测试（(\d+)\s*项/)
+  assert(totalLine !== null, 'MAINTENANCE.md must still state the suite total in section 1')
+  documentedTotal = Number(totalLine[1])
+
+  // The two statements must at least agree with each other.
+  assert(
+    documentedTotal === documentedBreakdown.reduce((sum, n) => sum + n, 0),
+    `the stated total (${documentedTotal}) must equal the sum of the distribution (${documentedBreakdown.reduce((sum, n) => sum + n, 0)})`,
+  )
+})
+
 globalThis.window = originalWindow
 
 // ---------------------------------------------------------------------------
+// RECONCILE THE DOCUMENTED COUNTS. Done here rather than inside a `check()`, because this file's real
+// count is only known once every case has run. A stale number in the handover doc reads as a rounding
+// difference rather than a gap, so it must fail the suite rather than merely be wrong.
+if (documentedBreakdown !== null) {
+  if (documentedBreakdown[2] !== passed) {
+    failures.push({
+      name: 'MAINTENANCE.md client count',
+      message: `documents ${documentedBreakdown[2]} client checks, but this suite ran ${passed}`,
+    })
+  }
+  if (documentedTotal !== documentedBreakdown.reduce((sum, n) => sum + n, 0)) {
+    failures.push({
+      name: 'MAINTENANCE.md total',
+      message: `states ${documentedTotal} checks, but its own distribution sums to ${documentedBreakdown.reduce((sum, n) => sum + n, 0)}`,
+    })
+  }
+}
+
 const total = passed + failures.length
 console.log('')
 if (failures.length === 0) {
@@ -6635,4 +6734,5 @@ if (failures.length === 0) {
   process.exit(0)
 }
 console.log(`FAIL  ${passed}/${total} client checks passed`)
+for (const failure of failures) console.log(`  x ${failure.name}\n      ${failure.message}`)
 process.exit(1)
