@@ -21,6 +21,7 @@ import {
   writeFileSync,
 } from 'node:fs'
 import * as yaml from 'js-yaml'
+import { spawnSync } from 'node:child_process'
 import { tmpdir } from 'node:os'
 import { dirname as dirnameOf } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1435,6 +1436,31 @@ check('the package manifest promises only files that exist', () => {
   assert(/spawnSync\(process\.execPath/.test(packager), 'the packager runs the suites as children')
   assert(!/await import\(pathToFileURL\(join\(ROOT, 'tools', suite\)\)/.test(packager), 'and does NOT import them, which would exit on their process.exit')
   assert(/refusing to package a red tree/.test(packager), 'and refuses to package a failing build')
+
+  // AND NO GENERATED ARTIFACT MAY BE TRACKED. `.gitignore` only stops UNTRACKED files from being
+  // added; once something is committed it stays committed, and nothing was checking that. So
+  // `dsh-novelsupport-0.1.0.tgz` and seventeen of the plugin's own backups under `novel/` shipped to
+  // GitHub with a healthy green test suite — the rules were in `.gitignore` the whole time and simply
+  // did not apply. This asserts against the INDEX (`git ls-files`), which is what a push carries.
+  //
+  // NO `try`/`catch` AROUND THE ASSERTIONS. `spawnSync` does not throw — it returns `{ error }` — so a
+  // catch here could only ever swallow the assertions' own throws, which is exactly what the first
+  // version of this guard did: it saw the tracked tarball, threw, caught itself, and reported PASS.
+  // Git being absent is handled by inspecting `error` instead.
+  const listed = spawnSync('git', ['ls-files'], { cwd: ROOT, encoding: 'utf8' })
+  if (listed.error === undefined && listed.status === 0 && typeof listed.stdout === 'string') {
+    const tracked = listed.stdout.split('\n').filter((line) => line !== '')
+    const junk = tracked.filter((path) => /\.tgz$/.test(path) || /\.prev$/.test(path) || /\.bak-/.test(path))
+    assert(
+      junk.length === 0,
+      `these generated files are tracked and would be pushed: ${junk.join(', ')} — \`git rm --cached\` them`,
+    )
+    // The author's own content must still be tracked: excluding the churn must not exclude the work.
+    assert(
+      tracked.some((path) => path.startsWith('novel/') && path.endsWith('.md')),
+      'the author\'s chapters must stay tracked — only the generated backups are excluded',
+    )
+  }
 })
 
 // --- report ----------------------------------------------------------------
