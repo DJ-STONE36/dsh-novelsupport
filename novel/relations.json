@@ -1,0 +1,140 @@
+{
+  "types": [
+    {
+      "id": "master-apprentice",
+      "label": "师徒",
+      "directed": true,
+      "color": "#4a8",
+      "excludes": []
+    },
+    {
+      "id": "parent-child",
+      "label": "亲缘",
+      "directed": false,
+      "color": null,
+      "excludes": []
+    },
+    {
+      "id": "ally",
+      "label": "同盟",
+      "directed": false,
+      "color": null,
+      "excludes": [
+        "hostile"
+      ]
+    },
+    {
+      "id": "hostile",
+      "label": "敌对",
+      "directed": false,
+      "color": null,
+      "excludes": [
+        "ally"
+      ]
+    },
+    {
+      "id": "member-of",
+      "label": "隶属",
+      "directed": true,
+      "color": null,
+      "excludes": []
+    },
+    {
+      "id": "owns",
+      "label": "持有",
+      "directed": true,
+      "color": null,
+      "excludes": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "rel-new",
+      "from": "char-新人物",
+      "to": "char-新人物-2",
+      "type": "master-apprentice",
+      "since": {
+        "year": 200,
+        "month": 4,
+        "day": 4
+      },
+      "until": null,
+      "note": "",
+      "causeEventId": "evt-新事件-4"
+    },
+    {
+      "id": "rel-new-2",
+      "from": "org-新组织",
+      "to": "org-新组织-2",
+      "type": "hostile",
+      "since": {
+        "year": 1,
+        "month": null,
+        "day": null
+      },
+      "until": null,
+      "note": "",
+      "causeEventId": null
+    },
+    {
+      "id": "rel-new-3",
+      "from": "org-新组织-3",
+      "to": "org-新组织",
+      "type": "hostile",
+      "since": {
+        "year": 1,
+        "month": 1,
+        "day": 1
+      },
+      "until": {
+        "year": 2,
+        "month": 2,
+        "day": 2
+      },
+      "note": "",
+      "causeEventId": null
+    },
+    {
+      "id": "rel-new-4",
+      "from": "org-新组织-3",
+      "to": "org-新组织-2",
+      "type": "hostile",
+      "since": {
+        "year": 1,
+        "month": null,
+        "day": null
+      },
+      "until": null,
+      "note": "",
+      "causeEventId": null
+    },
+    {
+      "id": "rel-new-5",
+      "from": "char-新人物",
+      "to": "org-新组织-2",
+      "type": "ally",
+      "since": {
+        "year": 1,
+        "month": null,
+        "day": null
+      },
+      "until": null,
+      "note": "",
+      "causeEventId": null
+    },
+    {
+      "id": "rel-new-6",
+      "from": "char-新人物-3",
+      "to": "char-新人物",
+      "type": "ally",
+      "since": {
+        "year": 1,
+        "month": null,
+        "day": null
+      },
+      "until": null,
+      "note": "",
+      "causeEventId": null
+    }
+  ]
+}

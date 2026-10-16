@@ -1,0 +1,120 @@
+{
+  "characters": [
+    {
+      "id": "char-新人物",
+      "name": "主角",
+      "aliases": [
+        "1",
+        "11"
+      ],
+      "gender": "未定",
+      "race": "人类",
+      "born": {
+        "year": 200,
+        "month": 1,
+        "day": 1
+      },
+      "ageNote": "",
+      "status": "alive",
+      "appearance": "",
+      "personality": "",
+      "background": "",
+      "firstAppearance": null,
+      "tags": [],
+      "custom": {}
+    },
+    {
+      "id": "char-新人物-2",
+      "name": "配角",
+      "aliases": [
+        "2",
+        "22"
+      ],
+      "gender": "未定",
+      "race": "人类",
+      "born": {
+        "year": 300,
+        "month": 1,
+        "day": 1
+      },
+      "ageNote": "",
+      "status": "alive",
+      "appearance": "",
+      "personality": "",
+      "background": "",
+      "firstAppearance": null,
+      "tags": [],
+      "custom": {}
+    },
+    {
+      "id": "char-新人物-3",
+      "name": "龙套",
+      "aliases": [
+        "3",
+        "33"
+      ],
+      "gender": "女",
+      "race": "",
+      "born": null,
+      "ageNote": "",
+      "status": "alive",
+      "appearance": "",
+      "personality": "",
+      "background": "",
+      "firstAppearance": null,
+      "tags": [],
+      "custom": {}
+    },
+    {
+      "id": "char-小明-人类-23-男",
+      "name": "小明：人类，23，男",
+      "aliases": [],
+      "gender": "未定",
+      "race": "",
+      "born": null,
+      "ageNote": "",
+      "status": "alive",
+      "appearance": "",
+      "personality": "",
+      "background": "",
+      "firstAppearance": null,
+      "tags": [],
+      "custom": {},
+      "parentId": null
+    },
+    {
+      "id": "char-小明人类23",
+      "name": "小明人类23",
+      "aliases": [],
+      "gender": "未定",
+      "race": "",
+      "born": null,
+      "ageNote": "",
+      "status": "alive",
+      "appearance": "",
+      "personality": "",
+      "background": "",
+      "firstAppearance": null,
+      "tags": [],
+      "custom": {},
+      "parentId": null
+    },
+    {
+      "id": "char-小明",
+      "name": "小明",
+      "aliases": [],
+      "gender": "男",
+      "race": "人类",
+      "born": null,
+      "ageNote": "23岁",
+      "status": "alive",
+      "appearance": "",
+      "personality": "",
+      "background": "一个人类男性23岁",
+      "firstAppearance": null,
+      "tags": [],
+      "custom": {},
+      "parentId": null
+    }
+  ]
+}
