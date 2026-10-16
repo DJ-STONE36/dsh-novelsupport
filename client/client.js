@@ -97,6 +97,20 @@ function isMissing(value) {
   return value === null || value === undefined
 }
 
+/**
+ * Does this validator finding belong to the document at `relPath`?
+ *
+ * The validator marks a finding two ways: plain `setting/world.json` for the document as a whole, and
+ * `setting/characters.json#char-1` for one entity inside it (validate.js:634 and friends). Comparing
+ * `issue.path === relPath` therefore matched only the first kind, and every ENTITY-level warning was
+ * dropped in silence — including the one the call site names in its own comment, an open relation to a
+ * dead character. A save that reported "1 warning" showed none of them.
+ */
+function issueBelongsTo(issue, relPath) {
+  const path = issue?.path
+  return typeof path === 'string' && (path === relPath || path.startsWith(`${relPath}#`))
+}
+
 // ---------------------------------------------------------------------------
 // Shared project selection
 //
@@ -278,7 +292,7 @@ function useDocument(root, relPath) {
             // to a dead character is visible without re-reading the whole project.
             setWarnings(
               (result?.validation?.issues ?? []).filter(
-                (issue) => issue.level === 'warning' && issue.path === relPath,
+                (issue) => issue.level === 'warning' && issueBelongsTo(issue, relPath),
               ),
             )
           }
@@ -523,7 +537,7 @@ function useChapter(root, relPath) {
             // character name no entity defines yet, without a second request.
             setWarnings(
               (result?.validation?.issues ?? []).filter(
-                (issue) => issue.level === 'warning' && issue.path === relPath,
+                (issue) => issue.level === 'warning' && issueBelongsTo(issue, relPath),
               ),
             )
           }
@@ -4054,6 +4068,10 @@ function agentPromptText(chapterTitle, instruction) {
  * A UI that decides this itself from `running` and `text` in several spots drifts: it shows "writing"
  * forever when a run ends without a `turn/end`, or "done" before the result was read.
  *
+ * `finished` is the route's own word for it — `GET /agent/result` sends `finished` (router.js:1477-1492).
+ * Reading a different key here is silent: the phase simply never reaches 'done', `status.running` has
+ * already gone false, and the caller that polls on `phase === 'reading'` keeps asking forever.
+ *
  * @returns `'idle' | 'unsupported' | 'failed' | 'running' | 'reading' | 'done'`
  *   `reading` is the gap between "the run stopped" and "we have its result" — real, and short.
  */
@@ -4064,7 +4082,7 @@ function agentPhase(input) {
     return error?.code === 'agent-prompt-unsupported' || error?.unsupported === true ? 'unsupported' : 'failed'
   }
   if (!started) return 'idle'
-  if (input?.result?.turnEnd !== undefined && input.result.turnEnd !== null) return 'done'
+  if (input?.result?.finished === true) return 'done'
   if (input?.status?.running === true) return 'running'
   return 'reading'
 }
@@ -12225,6 +12243,7 @@ exports.__test = {
   isRecord,
   objectList,
   objectValues,
+  issueBelongsTo,
   // --- the map ---
   MAP_DOC,
   MAP_LAYOUT_DOC,

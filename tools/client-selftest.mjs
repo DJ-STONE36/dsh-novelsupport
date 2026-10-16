@@ -3581,7 +3581,27 @@ check('the agent path reports what it is doing, and the host limitation', () => 
   assert(phase({}) === 'idle', 'nothing started is idle')
   assert(phase({ started: true, status: { running: true } }) === 'running', 'a running run is running')
   assert(phase({ started: true, status: { running: false } }) === 'reading', 'a stopped run with no result yet is being read')
-  assert(phase({ started: true, status: { running: false }, result: { turnEnd: { reason: 'ok' } } }) === 'done', 'a result with a turn end is done')
+  // THE FIXTURE IS THE ROUTE'S REAL ANSWER. `GET /agent/result` sends `finished` (router.js:1477-1492);
+  // it has never sent `turnEnd`. The old fixture here invented a `{ turnEnd: … }` payload, so this case
+  // passed against a shape the host does not produce and `agentPhase` could never reach 'done' in the
+  // app: after a run stopped, `status.running` went false, the phase stayed 'reading', and the
+  // `/agent/result` effect (62-agent.js:411, gated on `phase === 'reading'`) kept re-fetching forever.
+  const agentResultBody = {
+    ok: true,
+    sessionId: 'session-1',
+    finished: true,
+    reason: 'ok',
+    text: '写好了',
+    usage: null,
+    writes: [],
+    eventCount: 3,
+    totalEvents: 3,
+    stateKeys: [],
+    eventTypes: [],
+  }
+  assert(phase({ started: true, status: { running: false }, result: agentResultBody }) === 'done', 'a result the route reports as finished is done')
+  assert(phase({ started: true, status: { running: false }, result: { ...agentResultBody, finished: false } }) === 'reading', 'an unfinished result is still being read')
+  assert(phase({ started: true, status: { running: false }, result: { turnEnd: { reason: 'ok' } } }) !== 'done', 'a turnEnd payload is not what the route sends, so it must not decide the phase')
   assert(phase({ started: true, error: { code: 'agent-prompt-unsupported' } }) === 'unsupported', 'the host defect has its own phase')
   assert(phase({ started: true, error: { message: 'boom' } }) === 'failed', 'any other failure is a failure')
   assert(phase({ started: false, status: { running: true } }) === 'idle', 'status before a start means nothing')
@@ -6682,6 +6702,50 @@ check('mintId never emits a doubled separator', () => {
   for (const id of [mintId('item-', '青锋剑', new Set()), mintId('cat-', '兵器', new Set())]) {
     assert(!id.includes('--'), `id contains a doubled separator: ${id}`)
   }
+})
+
+check('a validator warning is scoped to its document, entity-level ones included', () => {
+  // The validator names a finding two ways: `setting/world.json` for the document, and
+  // `setting/characters.json#char-1` for ONE entity inside it (validate.js:634, :460, :559, :532).
+  // The save handler compared `issue.path === relPath`, so it matched only the first kind and every
+  // entity-level warning vanished without a word — including the case the code's own comment names,
+  // "an open relation to a dead character". A save reporting 1 warning displayed none.
+  const belongs = plugin.__test.issueBelongsTo
+  assert(typeof belongs === 'function', 'issueBelongsTo must be exported for the audit')
+
+  // The bare form, and the element form, both belong to that document.
+  assert(belongs({ path: 'setting/world.json' }, 'setting/world.json') === true, 'a whole-document finding belongs')
+  assert(belongs({ path: 'setting/characters.json#char-1' }, 'setting/characters.json') === true, 'and so does an entity-level one')
+  assert(belongs({ path: 'relations.json#edge-7' }, 'relations.json') === true, 'for every document, not just characters')
+  assert(belongs({ path: 'outline/timeline.json#evt-2' }, 'outline/timeline.json') === true, 'including the timeline')
+
+  // And nothing from elsewhere leaks in.
+  assert(belongs({ path: 'setting/places.json#place-1' }, 'setting/characters.json') === false, 'another document is not this one')
+  assert(belongs({ path: 'setting/characters.json.bak#char-1' }, 'setting/characters.json') === false, 'a lookalike name is not a prefix match')
+  assert(belongs({ path: '' }, 'setting/characters.json') === false, 'an empty path matches nothing')
+  assert(belongs({}, 'setting/characters.json') === false, 'a finding with no path matches nothing')
+  assert(belongs(null, 'setting/characters.json') === false, 'and junk does not throw')
+
+  // AND THE WIRING. A correct helper that the call sites stopped calling is the exact defect being
+  // fixed here, and no amount of exercising the helper can see that. Both hooks — the entity document
+  // and the chapter — must go through it, and the old inline comparison must be gone.
+  //
+  // Comments are stripped first: the explanation above the helper quotes the old comparison verbatim,
+  // and searching raw source would match that prose instead of code. (Looking for code in comments is a
+  // documented way to write a guard that proves nothing.)
+  const core = readFileSync(join(ROOT, 'client', 'src', '10-core.js'), 'utf8')
+  const code = core
+    .split('\n')
+    .map((line) => {
+      const trimmed = line.trim()
+      if (trimmed.startsWith('//') || trimmed.startsWith('*') || trimmed.startsWith('/*')) return ''
+      return line.replace(/\/\/.*$/, '')
+    })
+    .join('\n')
+  const wired = code.match(/issue\.path === relPath/g) ?? []
+  assert(wired.length === 0, `no call site may compare issue.path to relPath directly, found ${wired.length}`)
+  const uses = code.match(/issue\.level === 'warning' && issueBelongsTo\(issue, relPath\)/g) ?? []
+  assert(uses.length === 2, `both the document and the chapter hook must scope warnings through it, found ${uses.length} call site(s)`)
 })
 
 check('MAINTENANCE.md still reports the real test distribution', () => {

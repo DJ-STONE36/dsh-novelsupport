@@ -23,7 +23,7 @@
 ```powershell
 cd D:\documents\GitHub\my-project
 
-# 跑四套测试（413 项，约 30 秒）。全绿才动代码。
+# 跑四套测试（414 项，约 30 秒）。全绿才动代码。
 tools\run.cmd impl-selftest.mjs
 tools\run.cmd api-selftest.mjs
 tools\run.cmd client-selftest.mjs
@@ -176,7 +176,7 @@ tools\run.cmd package-plugin.mjs
   （例：`ChapterBody` 的 `list`/`editor` 槽位如果不是字面量也不是它能解析的局部赋值 → **直接 FAIL** ✓）
 - 断言要**对着源码/真实路由**核对 ✓ 不要对着"合理形状" ✓
 
-**测试分布**：`impl` 88 项（纯逻辑）· `api` 72 项（真实 HTTP）· `client` 243 项（纯函数 + 源码结构审计）· `live` 10 项（真的建项目、写章节、写盘再读回）
+**测试分布**：`impl` 88 项（纯逻辑）· `api` 72 项（真实 HTTP）· `client` 244 项（纯函数 + 源码结构审计）· `live` 10 项（真的建项目、写章节、写盘再读回）
 
 ---
 
@@ -279,5 +279,5 @@ try { return { path: createRequire(baseUrl).resolve(`${expectedPackageName}/pack
 
 **为什么这样比「把整个会话留着」可靠**：
 - 会话会被**压缩**（这个项目已经被压缩过一次 ✓ 细节在那一步就丢了 ✗）✓ 而且不能无限延长 ✓
-- 而**测试、注释、文档活在仓库里** ✓ 413 项检查把每一个决定和每一个踩过的坑都编码进去了 ✓ 改错了会**失败** ✓
+- 而**测试、注释、文档活在仓库里** ✓ 414 项检查把每一个决定和每一个踩过的坑都编码进去了 ✓ 改错了会**失败** ✓
 - 所以：**仓库是记忆 ✓ 会话是工作台** ✓ 工作台可以换 ✓ 记忆不会丢 ✓

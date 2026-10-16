@@ -44,6 +44,10 @@ function agentPromptText(chapterTitle, instruction) {
  * A UI that decides this itself from `running` and `text` in several spots drifts: it shows "writing"
  * forever when a run ends without a `turn/end`, or "done" before the result was read.
  *
+ * `finished` is the route's own word for it — `GET /agent/result` sends `finished` (router.js:1477-1492).
+ * Reading a different key here is silent: the phase simply never reaches 'done', `status.running` has
+ * already gone false, and the caller that polls on `phase === 'reading'` keeps asking forever.
+ *
  * @returns `'idle' | 'unsupported' | 'failed' | 'running' | 'reading' | 'done'`
  *   `reading` is the gap between "the run stopped" and "we have its result" — real, and short.
  */
@@ -54,7 +58,7 @@ function agentPhase(input) {
     return error?.code === 'agent-prompt-unsupported' || error?.unsupported === true ? 'unsupported' : 'failed'
   }
   if (!started) return 'idle'
-  if (input?.result?.turnEnd !== undefined && input.result.turnEnd !== null) return 'done'
+  if (input?.result?.finished === true) return 'done'
   if (input?.status?.running === true) return 'running'
   return 'reading'
 }

@@ -197,6 +197,7 @@ exports.__test = {
   isRecord,
   objectList,
   objectValues,
+  issueBelongsTo,
   // --- the map ---
   MAP_DOC,
   MAP_LAYOUT_DOC,
