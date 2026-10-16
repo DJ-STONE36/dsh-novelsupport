@@ -1,0 +1,16 @@
+# Line endings, pinned so a clone cannot break the tools.
+#
+# `core.autocrlf=true` (this machine's setting) keeps the working tree CRLF and the repository LF.
+# That is invisible until someone clones with `autocrlf=false` or `input` — and then every `.cmd`
+# arrives as LF, which breaks `%~dp0` handling in `tools\run.cmd` and `tools\apply-host-patch.cmd`.
+# The repo has a test that .cmd files are CRLF in the WORKING TREE, so that clone would ship a
+# package whose own test suite cannot run. Pin it here instead of relying on a client setting.
+*.cmd text eol=crlf
+
+# Everything else normalises to LF in the repository.
+*.js   text eol=lf
+*.mjs  text eol=lf
+*.json text eol=lf
+*.yml  text eol=lf
+*.yaml text eol=lf
+*.md   text eol=lf
