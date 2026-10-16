@@ -22,7 +22,7 @@
 dsh plugin --profile desktop add dsh-novelsupport
 
 # 从 GitHub（拉的是源码；本包已随仓库提供构建好的 lib/ 与 client/client.js，所以无需构建）
-dsh plugin --profile desktop add github:DJ-STONE36/my-project
+dsh plugin --profile desktop add github:DJ-STONE36/dsh-novelsupport
 
 # 从本地 checkout 或 tarball
 dsh plugin --profile desktop add ./dsh-novelsupport
