@@ -1410,6 +1410,26 @@ check('the package manifest promises only files that exist', () => {
   // `files` is the declarative ship list: an inferred one would sweep in tools/ and any scratch directory.
   assert(Array.isArray(pkg.files) && pkg.files.includes('lib') && pkg.files.includes('client/client.js'), 'the ship list is declared')
   for (const entry of pkg.files) assert(existsSync(join(ROOT, entry)), `the declared ship entry ${entry} exists`)
+  // AND THE PACKAGER MUST AGREE WITH IT. `npm publish` follows `files`; the tarball follows the
+  // packager's own INCLUDED list. Nothing compared the two, so a file added to one and forgotten in
+  // the other ships a package that installs and then fails to load — which is exactly what happened to
+  // LICENSE and dsh.plugin.json the first time they were added.
+  const packagerSource = readFileSync(join(ROOT, 'tools', 'package-plugin.mjs'), 'utf8')
+  const included = packagerSource.match(/const INCLUDED = \[([^\]]*)\]/)
+  assert(included !== null, 'the packager declares what it ships')
+  const shipped = [...included[1].matchAll(/'([^']+)'/g)].map((m) => m[1])
+  for (const entry of pkg.files) {
+    // `docs` is narrowed deliberately: the packager ships `docs/data-model.md` only, because the other
+    // docs describe THIS machine (crash forensics) and do not belong in a distributed package.
+    if (entry === 'docs') {
+      assert(shipped.includes('docs/data-model.md'), 'the packager ships the data-model note')
+      continue
+    }
+    assert(shipped.includes(entry), `the packager must ship ${entry}, which package.json's files lists`)
+  }
+  for (const entry of shipped) {
+    assert(existsSync(join(ROOT, entry)), `the packager ships ${entry}, which must exist`)
+  }
   // The packager itself must be there, and must not package a red tree.
   const packager = readFileSync(join(ROOT, 'tools', 'package-plugin.mjs'), 'utf8')
   assert(/spawnSync\(process\.execPath/.test(packager), 'the packager runs the suites as children')

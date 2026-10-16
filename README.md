@@ -13,6 +13,40 @@
 
 插件是"人侧"，技能是"AI 侧"，两者靠 `novel/` 里的同一份数据耦合。AI 写好的章节，界面能直接看到；界面上改的设定，AI 下次写作就能读到。
 
+## 安装
+
+这是一个 **DSH 组合包**（声明了 `dsh.bundle`），用 `dsh plugin` 安装进一个 profile：
+
+```sh
+# 从 npm（推荐：装的是预构建产物，不需要任何构建授权）
+dsh plugin --profile desktop add dsh-novelsupport
+
+# 从 GitHub（拉的是源码；本包已随仓库提供构建好的 lib/ 与 client/client.js，所以无需构建）
+dsh plugin --profile desktop add github:<owner>/dsh-novelsupport
+
+# 从本地 checkout 或 tarball
+dsh plugin --profile desktop add ./dsh-novelsupport
+dsh plugin --profile desktop add ./dsh-novelsupport-0.1.0.tgz
+```
+
+装完**重启 DSH**，`GET /dsh-novel/health` 应返回 `{"ok":true}`，侧栏出现「小说」入口。
+（不想用 CLI 的话，`tools\package-plugin.mjs` 生成的 `INSTALL.md` 写的是手工解包进
+`<profile>/node_modules` 的办法 —— 这时目录名**必须**是包名 `dsh-novelsupport`。）
+
+### 它与另外几个小说插件的区别
+
+生态里已有若干 DSH 小说插件（`dsh-novel`、`novel-workbench` 等），其中 npm 上的
+`dsh-novel@0.1.1` 属于另一份实现。本包刻意**不叫 `dsh-novel`**，因为：
+
+- **数据是纯文件，不是数据库。** 设定、大纲、章节都在项目目录的 `novel/` 下
+  （JSON + Markdown），可以直接用 Git 管理、用任意编辑器改、坏了能手修。
+  另一份实现把 canon 存进 `.dsh-novel/pglite` 数据库。
+- **不依赖任何宿主内部包。** `peerDependencies` 为空，所以 DSH 的插件兼容性检查
+  **没有东西可评估**，也就不会因为宿主升级而被迫逐行禁用。
+- **不需要给宿主打补丁。** 「交给 agent 写这一章」走的是 `resolveAgent` + `followup`，
+  不碰 `sessionController.prompt`（那条路需要改已安装的 app.asar）。
+- **三栏界面 + 地图 + 时间轴 + 关系网** 这些都在客户端，离线自测覆盖 245 项。
+
 ## 目录结构
 
 ```
@@ -20,8 +54,8 @@
 ├── package.json              插件清单：dsh.bundle.patch + dsh.client
 ├── cordis.patch.yml          bundle patch：把本插件插入 profile 的层栈
 ├── lib/
-│   ├── index.js              宿主端薄壳（唯一需要重启才能更新的文件）
-│   └── impl/                 宿主端全部逻辑，改完下一次请求即生效
+│   ├── index.js              宿主端薄壳（路由前缀注册与服务绑定）
+│   └── impl/                 宿主端全部逻辑
 │       ├── schema.js         文件清单、默认日历、默认关系类型
 │       ├── paths.js          路径围栏：只允许 <root>/novel/** 内的读写
 │       ├── store.js          原子写（临时文件 + rename，含 Windows 重试）
@@ -29,7 +63,6 @@
 │       ├── validate.js       结构校验：悬空引用、成环、时间区间
 │       ├── scaffold.js       新建项目的规划（纯函数）
 │       └── router.js         全部 HTTP 端点
-├── client/
 ├── client/
 │   ├── src/                  浏览器侧源码，按序号拼接（10-core … 90-apply）
 │   └── client.js             **生成文件**，由 tools/build-client.mjs 拼出

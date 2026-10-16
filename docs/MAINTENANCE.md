@@ -52,9 +52,37 @@ tools\run.cmd package-plugin.mjs
 
 **`tools\run.cmd` 是什么**：这台机器上的 Node 不在 `PATH` 里，一切都要用固定的 node 路径启动 ✓ `run.cmd` 就是那层包装 ✓ 直接 `node xxx.mjs` 会找不到 node ✓
 
-**宿主半 vs 客户端半的生效方式不同**，这点很省时间：
-- `lib/**`（宿主）—— **下次 HTTP 请求就生效** ✓ 不用重启、不用重建 ✓
-- `client/src/**`（客户端）—— **必须 `build-client.mjs`** ✓ 然后**刷新页面** ✓（客户端插件有 HMR，但只有 `pnpm run dev:web` 在跑时才自动重载 ✓）
+**宿主半 vs 客户端半的生效方式不同 —— 但先看它「从哪儿装的」** ✓ 这点最省时间，也最容易搞错 ✓
+
+**两种注册方式，生效速度完全不同，而且只能存在一种**：
+
+| 注册方式 | `lib/**` 改完 | `client/src/**` 改完 | 什么时候用 |
+|---|---|---|---|
+| **绝对路径**（profile 里写 `name: 'D:/…/lib/index.js'`） | **下次 HTTP 请求即生效** ✓ 不用重启不用重建 ✓ | `build-client.mjs` ✓ 再刷新页面 ✓（有 HMR 也能自动重载，但只在 `pnpm run dev:web` 在跑时） | **开发期** ✓ 改代码最舒服 ✓ |
+| **包名**（profile 里写 `name: 'dsh-novelsupport'`，即 `dsh plugin add` 装出来的样子） | **不生效** ✗ 要重新打包 + 重装 + **重启 DSH** ✗ | 同上，且同样要重装 ✓ | **发行形态** ✓ 也是验证发行路径的唯一方式 ✓ |
+
+**同时留着两种会报** `package … resolves from multiple active Loader sources` ✗ 别把它误判成别的故障 ✓
+
+**所以「插件更新怎么做」**（发行形态，也就是现在这台机器的状态）：
+```powershell
+# 1. 改代码，然后确认基线还绿
+tools\run.cmd impl-selftest.mjs ; tools\run.cmd api-selftest.mjs
+tools\run.cmd client-selftest.mjs
+# 2. 客户端半改了就必须重建
+tools\run.cmd build-client.mjs
+# 3. 打包（它会自己先跑前三套，红了拒绝打包）
+tools\run.cmd package-plugin.mjs
+# 4. 重装进 profile（改 <profile> 与版本号）—— 关掉 DSH 再做
+Remove-Item <profile>\node_modules\dsh-novelsupport -Recurse -Force
+tar -xzf dsh-novelsupport-0.1.0.tgz -C <profile>\node_modules
+Rename-Item <profile>\node_modules\package <profile>\node_modules\dsh-novelsupport
+# 5. 启动 DSH，然后
+tools\run.cmd live-check.mjs
+```
+**版本号要跟着改** —— `package.json` 的 `version` 与 `dsh.plugin.json` 的 `version`（两者不一致会让接手的人困惑）✓
+
+**开发期想省掉第 3–5 步**：把 profile 的注册换成绝对路径（见上表）✓ 但**必须在发行前换回包名形态再验证一次** ✗
+否则「装出来的样子」从来没被验证过 ✓
 
 ---
 

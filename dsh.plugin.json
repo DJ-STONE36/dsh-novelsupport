@@ -1,0 +1,13 @@
+{
+  "id": "dsh-novelsupport/dsh-novelsupport",
+  "version": "0.1.0",
+  "main": "./lib/index.js",
+  "description": "小说创作工作区：三栏界面 + 地图 / 时间轴 / 人物·地点·物品·组织关系网 / 章节正文 / 导出全书 / 纯文本批量导入。数据以纯文件存在项目里。",
+  "engines": {
+    "dsh": ">=0.2.0-rc.1"
+  },
+  "contributes": {
+    "tools": [],
+    "skills": []
+  }
+}

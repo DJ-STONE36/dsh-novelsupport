@@ -72,7 +72,13 @@ const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
 // SHIPPED, DECLARED: the host half, the built client bundle, the patch manifest, the design note. Not `tools/`
 // (dev-only) and not the host-bug history (it describes THIS machine's asar), which is exactly the sort of thing
 // an inferred list would have swept in.
-const INCLUDED = ['package.json', 'lib', 'client/client.js', 'cordis.patch.yml', 'README.md', 'docs/data-model.md']
+//
+// THIS LIST IS NOT `package.json`'s `files`. Both exist and both must be updated: `files` governs what
+// `npm publish` carries, this governs what the tarball carries, and nothing compares them — so adding a
+// file to one and forgetting the other ships a package that installs and then fails to load. `LICENSE`
+// and `dsh.plugin.json` were each added to `files` first and to this list second, which is why a guard
+// asserting the two agree now exists in impl-selftest.
+const INCLUDED = ['package.json', 'lib', 'client/client.js', 'cordis.patch.yml', 'dsh.plugin.json', 'LICENSE', 'README.md', 'docs/data-model.md']
 
 /** Every file in the package, as POSIX-style paths relative to the root. */
 function collect() {

@@ -1,6 +1,6 @@
 # 安装 dsh-novelsupport
 
-这是一个 DeepSeek Harness 插件包（dsh-novelsupport-0.0.1.tgz，dsh-novelsupport@0.0.1）。
+这是一个 DeepSeek Harness 插件包（dsh-novelsupport-0.1.0.tgz，dsh-novelsupport@0.1.0）。
 
 ## 一、装到某个 profile 里
 
@@ -9,7 +9,7 @@ DSH 的插件放在 profile 的 `node_modules` 下。把包解开，让
 
 ```powershell
 # 1) 解开（把 <profile> 换成你的，例如 D:\dsh-home\profiles\desktop）
-tar -xzf dsh-novelsupport-0.0.1.tgz -C <profile>\node_modules
+tar -xzf dsh-novelsupport-0.1.0.tgz -C <profile>\node_modules
 Rename-Item <profile>\node_modules\package <profile>\node_modules\dsh-novelsupport
 ```
 
