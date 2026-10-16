@@ -1,0 +1,31 @@
+# 依赖与构建产物
+node_modules/
+dist/
+build/
+*.log
+pnpm-debug.log*
+
+# pnpm 在本盘的本地缓存（当工作区与默认 store 不同盘时生成）
+.pnpm-store/
+
+# 本地验证产物：tools/live-check.mjs 默认往这里写一个临时项目
+.verify/
+
+# 编辑器与系统文件
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# DSH 本地运行态（会话、缓存、临时文件）
+.dsh/sessions/
+.dsh/storage/
+.dsh/cache/
+*.tmp
+*~
+
+# 作品数据默认纳入版本管理，以便追踪设定与大纲的演变。
+# 若不想提交草稿正文，取消下面一行的注释（novel/draft/ 由宿主端按需创建，
+# 因此不需要占位文件）：
+# novel/draft/*
