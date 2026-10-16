@@ -35,7 +35,7 @@
     "dsh.plugin.json",
     "LICENSE",
     "README.md",
-    "docs"
+    "docs/data-model.md"
   ],
   "license": "MIT"
 }

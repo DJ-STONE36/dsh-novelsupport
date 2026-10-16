@@ -1419,17 +1419,28 @@ check('the package manifest promises only files that exist', () => {
   const included = packagerSource.match(/const INCLUDED = \[([^\]]*)\]/)
   assert(included !== null, 'the packager declares what it ships')
   const shipped = [...included[1].matchAll(/'([^']+)'/g)].map((m) => m[1])
+  // EXACT MATCH, NO CARVE-OUT. The first version of this check exempted `docs` on the reasoning that
+  // the packager narrows it to `docs/data-model.md`. That exemption is what let the two lists drift:
+  // `files` still said `"docs"`, so `npm publish` shipped MAINTENANCE.md, both crash-forensics notes
+  // and the host-bug history — this machine's profile paths, backup filenames and crash scenes — while
+  // the tarball shipped one file. The fix is to name the file in BOTH lists and compare them literally.
   for (const entry of pkg.files) {
-    // `docs` is narrowed deliberately: the packager ships `docs/data-model.md` only, because the other
-    // docs describe THIS machine (crash forensics) and do not belong in a distributed package.
-    if (entry === 'docs') {
-      assert(shipped.includes('docs/data-model.md'), 'the packager ships the data-model note')
-      continue
-    }
     assert(shipped.includes(entry), `the packager must ship ${entry}, which package.json's files lists`)
   }
   for (const entry of shipped) {
+    // `package.json` is the one automatic exception: npm always includes it, so it is correctly absent
+    // from `files` while the packager names it explicitly.
+    if (entry === 'package.json') continue
+    assert(pkg.files.includes(entry), `package.json's files must list ${entry}, which the packager ships`)
     assert(existsSync(join(ROOT, entry)), `the packager ships ${entry}, which must exist`)
+  }
+  // AND THE MACHINE-SPECIFIC NOTES MUST NOT SHIP. They are forensics about THIS installation, not
+  // documentation for a user, and `"docs"` as a directory would sweep them in.
+  for (const privateNote of ['docs/MAINTENANCE.md', 'docs/2026-10-16-启动故障复核.md', 'docs/2026-10-16-安装崩溃-三重身份.md', 'docs/host-bug-session-controller-prompt.md']) {
+    assert(
+      !pkg.files.includes(privateNote) && !shipped.includes(privateNote),
+      `${privateNote} documents this machine and must not be distributed`,
+    )
   }
   // The packager itself must be there, and must not package a red tree.
   const packager = readFileSync(join(ROOT, 'tools', 'package-plugin.mjs'), 'utf8')
