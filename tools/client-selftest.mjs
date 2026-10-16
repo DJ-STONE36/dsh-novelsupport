@@ -6748,6 +6748,100 @@ check('a validator warning is scoped to its document, entity-level ones included
   assert(uses.length === 2, `both the document and the chapter hook must scope warnings through it, found ${uses.length} call site(s)`)
 })
 
+check('every route field the client reads exists in the route that sends it', () => {
+  // THE CLASS, NOT THE INSTANCES. The two historical bugs this file already guards by hand were a
+  // `/sessions` field read as `items` and an `/agent/prompt` body sent as `prompt`; a third — reading
+  // `turnEnd` where `/agent/result` sends `finished` — then survived for months because the guard listed
+  // route by route and this one was not on the list. So check the whole table instead.
+  //
+  // Matching is by VERBATIM SOURCE, not by parsing: for `field: <expr>` the sender literally contains
+  // `field: <expr>`. That needs no tokenizer (an earlier attempt to parse the literals silently dropped
+  // keys whose values contained `?.` or `{ … }` inside a comment — a guard that lies is worse than none).
+  const router = readFileSync(join(ROOT, 'lib', 'impl', 'router.js'), 'utf8')
+  const core = readFileSync(join(ROOT, 'client', 'src', '10-core.js'), 'utf8')
+  const agent = readFileSync(join(ROOT, 'client', 'src', '62-agent.js'), 'utf8')
+
+  /**
+   * Does the handler that SENDS this route mention this field with this exact expression?
+   *
+   * Matches both `field:` and the shorthand `field,` / `field }` form, because several routes send
+   * `{ ok: true, available, root, sessions }` — a `field\s*:` test alone would report those as missing.
+   *
+   * It also follows `...spread`, because `/catalog` sends no `styles` of its own: it spreads
+   * `modules.prompt.catalogue()`, and those keys live in `lib/impl/prompt.js`. Reading only the handler
+   * body reported a false positive, which is the one thing a contract guard must never do.
+   */
+  // Every host module, for the allowlist check below.
+  const hostSources = readdirSync(join(ROOT, 'lib', 'impl'))
+    .filter((name) => name.endsWith('.js'))
+    .map((name) => readFileSync(join(ROOT, 'lib', 'impl', name), 'utf8'))
+    .join('\n')
+
+  /**
+   * Fields that arrive through a SPREAD, which this check cannot resolve: `/catalog` does
+   * `...catalogue` and `/manuscript` does `...built`, and `built` is a call result, not a literal.
+   * Following that would need real dataflow analysis. So they are listed here explicitly, and the
+   * assertion below still proves each name exists somewhere in the host — a rename therefore fails
+   * instead of passing silently. That is the honest middle: weaker than resolving the spread, far
+   * stronger than not checking at all, and it cannot report a false positive.
+   */
+  const viaSpread = new Set([
+    'styles', 'generators', 'maxCandidates', // lib/impl/prompt.js catalogue()
+    'skipped', 'text', 'included', 'wordCount', 'chapterCount', // lib/impl/manuscript.js build()
+  ])
+  for (const field of viaSpread) {
+    assert(
+      new RegExp(`\\b${field}\\b`).test(hostSources),
+      `\`${field}\` is listed as spread-provided but appears nowhere in the host — a rename would slip through`,
+    )
+  }
+
+  const sent = (handler, field) => {
+    const start = router.indexOf(`function ${handler}(`)
+    if (start === -1) return false
+    const nextFn = router.indexOf('\nfunction ', start + 1)
+    const body = router.slice(start, nextFn === -1 ? undefined : nextFn)
+    if (new RegExp(`\\b${field}\\s*[:,}]`).test(body)) return true
+    // A spread may be the source, and only the listed fields are accepted that way.
+    return viaSpread.has(field) && /\.\.\./.test(body)
+  }
+
+  // The fields the client actually reads, and the route that must be sending each one. Every entry was
+  // read off the two sources; the point is that a rename on either side now fails here.
+  const contract = [
+    ['handleAgentResult', 'finished', 'the phase can never be reached without it'],
+    ['handleAgentResult', 'text', 'the transcript'],
+    ['handleAgentResult', 'writes', 'the files the run touched'],
+    ['handleAgentResult', 'usage', 'the cost line'],
+    ['handleSessions', 'sessions', 'the picker is permanently empty otherwise'],
+    ['handleSessions', 'defaultModel', 'the model line'],
+    ['handleSessions', 'available', 'the unsupported screen'],
+    ['handleAgentStatus', 'running', 'a live run is detected by it'],
+    ['handleAgentStatus', 'agentAvailable', 'the control is offered by it'],
+    ['handleAgentPrompt', 'sessionId', 'the chosen session is remembered from it'],
+    ['handleAgentPrompt', 'created', 'the note says whether a session was made'],
+    ['handleChapters', 'chapters', 'the chapter list'],
+    ['handleChapters', 'totalWordCount', 'the word total'],
+    ['handleProjectGet', 'summary', 'the project header'],
+    ['handleCatalog', 'models', 'the model picker'],
+    ['handleDraft', 'text', 'the drafted prose'],
+    ['handleGenerate', 'candidates', 'the candidate list'],
+    ['handleWorkspaces', 'workspaces', 'the project picker'],
+  ]
+  for (const [handler, field, why] of contract) {
+    assert(sent(handler, field), `${handler} must send \`${field}\` (${why})`)
+  }
+
+  // And the reverse direction: the client must actually be reading what the route sends. These are the
+  // reads that were wrong before, pinned by name so a rename on the client side fails too.
+  assert(/body\?\.sessions/.test(agent), 'the client reads `sessions` from /sessions')
+  assert(!/body\?\.items/.test(agent), 'and not `items`')
+  assert(/result\?\.finished|input\?\.result\?\.finished/.test(agent), 'the client reads `finished` from /agent/result')
+  assert(!/turnEnd/.test(agent.replace(/\/\/[^\n]*/g, '')), 'and no longer reads the `turnEnd` that route never sends')
+  assert(/text: agentPromptText\(/.test(agent), 'the client sends `text` to /agent/prompt')
+  assert(/issueBelongsTo\(issue, relPath\)/.test(core), 'and scopes warnings through the shared helper')
+})
+
 check('MAINTENANCE.md still reports the real test distribution', () => {
   // The doc calls itself the authoritative checklist for whoever takes over next, and it states both a
   // total and a per-suite breakdown. Those numbers drifted silently — they said 409 (impl 86) while the
