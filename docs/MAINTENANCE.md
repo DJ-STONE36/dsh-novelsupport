@@ -122,6 +122,7 @@ tools\run.cmd package-plugin.mjs
 | `build-client.mjs` | 拼客户端 |
 | `package-plugin.mjs` | 打包（自己写 tar.gz，自带验证） |
 | `patch-asar.mjs` / `wait-and-patch.mjs` / `apply-host-patch.cmd` | 宿主 asar 的长度中性补丁（见第 7 节） |
+| `revert-host-patch.cmd` / `_revert-payload.ps1` | **撤掉**那个补丁，用来证明插件不再需要它 ✓ 见下 ✓ |
 | `render-map.mjs` | 不开浏览器看地图（`--svg --paper <主题>`） |
 | `asar-find.mjs` / `asar-peek.mjs` / `asar-entry.mjs` | 读安装好的 DSH 的 asar（**查宿主真实行为的主要手段**） |
 | `agent-smoke.mjs` | 端到端试一次「交给 agent」 |
@@ -229,6 +230,32 @@ try { return { path: createRequire(baseUrl).resolve(`${expectedPackageName}/pack
 3. 插件自己的 `package.json` **不要**声明 `@deepseek-ai/dsh-*` 的 peer/dependency ✓ 本插件 `peerDependencies` 为空，所以 `evaluatePluginCompatibility` **根本没有东西可评估** ✓
 
 **改完必须冷启动才算验证过** ✓ 刷新页面只重载渲染进程，**不重读插件注册** ✗
+
+### 从 DSH 会话里「脱离」一个进程 —— 做不到 ✗
+
+**要改 `app.asar` 就得先关掉 DSH，而关掉 DSH 就会杀掉正在下命令的这个会话** ✓
+所以「等 DSH 退出再改文件」这一步需要一个**不属于 DSH 的进程** ✓
+2026-10-16 实测：会话内**三条路全被拒** ✗
+
+| 办法 | 结果 |
+|---|---|
+| `Start-Process powershell -File …` | 能起来 ✗ 但仍是 DSH 的后代，DSH 一退它就被带走 ✓ 日志只写了一行启动就断了 ✓ |
+| `Register-ScheduledTask` / `Start-ScheduledTask` | **拒绝访问** ✗（沙箱） |
+| WMI `Win32_Process` 的 `Create` | **拒绝访问** ✗ |
+
+仓库自己的注释早就写过这件事（`wait-and-patch.mjs` 顶部）：
+> a command started by DSH is a child of DSH, and it dies when DSH does —
+> which is the one moment it needs to survive.
+
+**所以「关闭 DSH 后动 asar」这一类操作只能由人在普通控制台窗口里执行** ✓
+`tools\revert-host-patch.cmd` 就是为此写的（CRLF、纯 ASCII，照 `apply-host-patch.cmd` 的形状）✓
+`tools\_revert-payload.ps1` 是同一步的独立脚本版本 —— 留到将来真有独立启动器的那天 ✓
+
+**顺带一个 PowerShell 坑**（本会话踩到）：`.ps1` 里只要有一个非 ASCII 字符（我当时写了个省略号 `…`），
+Windows PowerShell 5.1 会按 ANSI 读 BOM-less 文件 → **解析失败** ✗
+而 `$ErrorActionPreference = 'Stop'` 会把 `Say` 里的失败**放大成脚本中止** ✓
+工具脚本一律**纯 ASCII**，需要校验就用
+`[System.Management.Automation.Language.Parser]::ParseFile(...)` 与数一遍 >127 的字节 ✓
 
 ### 三重身份：包名 / 插件 id / 客户端模块 id
 
