@@ -285,7 +285,29 @@ try { return { path: createRequire(baseUrl).resolve(`${expectedPackageName}/pack
     —— 那话现在是错的 ✓
   - `tools\apply-host-patch.cmd` **留着**（第 6 节那个 asar 锁的坑还要用它）✓
     但它**不再是本插件的前置条件** ✓ 补丁可以直接从安装里撤掉 ✓
+- **agent 那条路需要一个有凭证的默认模型，否则每次都是 `MISSING_CREDENTIAL`** ✗（2026-10-16 实测）✓
+  症状：`/agent/result` 的 `reason.error.code = "MISSING_CREDENTIAL"`
+  （`llm-deepseek: no API key for provider route "deepseek-official"`）✓
+  而 `/agent/status` 里 `running` 几秒内就回 false、`eventTypes` 却**有完整的
+  `turn/start → user/message → assistant/attempt → step/end → turn/end`** ✓
+  —— 也就是说「驱动」是成功的，失败的是模型调用本身 ✓ **别把它误判成 agent 路径坏了** ✗
+  根因：宿主**没有** `agent-default-model` 这一行时会回落到 `provider: deepseek-official`，
+  而本机**只有** `deepseek-account-platform/default` 那份凭证
+  （见 `D:\dsh-home\.credentials.yaml`，里面没有 `deepseek-official` 的 key）✓
+  修法：profile 的 `cordis.patch.yml` 补一行
+  ```yaml
+  - id: agent-default-model
+    name: "@deepseek-ai/dsh-agent-default-model"
+    config:
+      provider: deepseek-account
+      model: deepseek-flash
+  ```
+  改完**热重载即生效**（不用重启）✓ 验证：`GET /sessions` 的 `defaultModel` 从
+  `deepseek-official` 变成 `deepseek-account` ✓ 然后 `POST /agent/prompt` 会返回
+  `reason: {"kind":"completed"}` 与真实 `text` ✓
+  ⚠️ 这一行**会被 profile 重置冲掉**（本会话里被冲掉过两次）✗ 症状回来的话先查它 ✓
 - **`docs/host-bug-session-controller-prompt.md` 有一段是我的误判** ✗：我曾把「漏传 `requestId`」写成宿主缺陷 ✓ 文档顶部已更正 ✓ **读那份文档时先读顶部的更正** ✓
+
 - **i18n 不做** ✓（作者只要中文 ✓ 已明确决定 ✓）
 - **有意推迟**：汇流变宽、图章/文字旋转、多行文字、六边形网格、导入 CSV/JSON、导出 Word（`office-docx` 技能可用 ✓）
 - **地图：显示缺省值写回文档 —— 地图级已修，路径级还没修** ✗（2026-10-16）✓
