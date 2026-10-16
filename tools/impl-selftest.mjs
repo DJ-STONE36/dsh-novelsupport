@@ -20,6 +20,7 @@ import {
   symlinkSync,
   writeFileSync,
 } from 'node:fs'
+import * as yaml from 'js-yaml'
 import { tmpdir } from 'node:os'
 import { dirname as dirnameOf } from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -1377,7 +1378,18 @@ check('the package manifest promises only files that exist', () => {
   // someone packages; this runs with everything else, so renaming a host module cannot quietly leave
   // `package.json` pointing at nothing.
   const pkg = JSON.parse(readFileSync(join(ROOT, 'package.json'), 'utf8'))
-  assert(pkg.name === 'dsh-novel', 'the package name is what the profile mounts')
+  // THE NAME AND THE PATCH MUST AGREE. The patch's insert carries the module the profile
+  // loads, so it has to be this package's name — resolving `dsh-novel` while the package is
+  // called something else would mount nothing. (This used to assert a hardcoded name, which
+  // also passed while the two files were free to drift apart.)
+  const patch = yaml.load(readFileSync(join(ROOT, 'cordis.patch.yml'), 'utf8'))
+  const inserted = Array.isArray(patch) ? patch.find((entry) => entry?.insert)?.insert?.[0] : null
+  assert(inserted !== null && typeof inserted.name === 'string', 'cordis.patch.yml inserts this plugin')
+  assert(
+    inserted.name === pkg.name,
+    `cordis.patch.yml mounts ${JSON.stringify(inserted.name)} but the package is named ${JSON.stringify(pkg.name)}`,
+  )
+  assert(inserted.id === 'dsh-novel', 'the plugin id stays dsh-novel — it is the route prefix and the skill namespace')
   assert(typeof pkg.version === 'string' && pkg.version !== '', 'it has a version')
   assert(pkg.type === 'module', 'the host half is ESM')
   for (const [label, value] of [['main', pkg.main], ['dsh.bundle.patch', pkg.dsh?.bundle?.patch]]) {

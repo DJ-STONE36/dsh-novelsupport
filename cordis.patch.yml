@@ -1,4 +1,10 @@
 # dsh bundle patch: inserts this plugin into a profile's layer stack.
+#
+# `name` must be the PACKAGE name, because the loader resolves it as a module
+# (node_modules/<name> or a bare specifier). The entry `id` is this plugin's own
+# plugin id and stays `dsh-novel`; so do its route prefix `/dsh-novel`, its write
+# header and its localStorage keys. Those are the plugin's identity, not its
+# package name, and renaming them would break the documented API and the skills.
 - insert:
     - id: dsh-novel
-      name: 'dsh-novel'
+      name: 'dsh-novelsupport'
