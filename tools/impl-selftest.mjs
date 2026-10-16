@@ -569,6 +569,43 @@ check('sanitizeByFields falls back to the draft name rather than an empty one', 
   assert(fromNothing.name === '未命名物品', `a generic placeholder is the last resort: ${fromNothing.name}`)
 })
 
+check('sanitizeByFields keeps what the author already wrote when the model omits a field', () => {
+  // ASKED FOR: the model path must not be a second writer that quietly empties the draft.
+  //
+  // A model routinely answers with only SOME of the declared keys — it is prose, not a form. Every other
+  // field still has to come back exactly as the author wrote it. The old guard fed a base holding only
+  // `id`/`name` and asserted only `name`, which is the single field with its own fallback, so all of the
+  // wiping below happened with the guard green. The base must therefore be FULLY populated: an omitted key
+  // and an empty key are different things, and only the second is the model saying "blank it".
+  const draft = {
+    id: 'item-1',
+    name: '我起的名字',
+    rarity: '三阶',
+    description: '我亲手写的描述',
+    history: '我亲手写的来历',
+    attrs: { 材质: '寒铁' },
+    tags: ['本命', '伏笔'],
+  }
+  const kept = prompt.sanitizeByFields({}, draft, itemGenerator)
+  for (const key of ['rarity', 'description', 'history']) {
+    assert(kept[key] === draft[key], `${key} must survive a generation that omitted it: ${JSON.stringify(kept[key])}`)
+  }
+  assert(JSON.stringify(kept.attrs) === JSON.stringify(draft.attrs), `attrs must survive: ${JSON.stringify(kept.attrs)}`)
+  assert(JSON.stringify(kept.tags) === JSON.stringify(draft.tags), `tags must survive: ${JSON.stringify(kept.tags)}`)
+  assert(kept.id === 'item-1', `the id is never the model's to change: ${kept.id}`)
+})
+
+check('sanitizeByFields still lets the model overwrite a field it did answer', () => {
+  // The other half of the rule: "omitted" and "answered with something blank" are NOT the same thing, so
+  // this fix must not turn into "the model can never change anything".
+  const draft = { id: 'item-1', name: '旧名', description: '旧的描述', tags: ['旧标签'] }
+  const answered = prompt.sanitizeByFields({ description: '模型写的新描述' }, draft, itemGenerator)
+  assert(answered.description === '模型写的新描述', `an answered field is replaced: ${answered.description}`)
+  assert(JSON.stringify(answered.tags) === JSON.stringify(draft.tags), `an unanswered list is kept: ${JSON.stringify(answered.tags)}`)
+  const blanked = prompt.sanitizeByFields({ description: null }, draft, itemGenerator)
+  assert(blanked.description === '', `an explicitly blank answer still clears: ${JSON.stringify(blanked.description)}`)
+})
+
 check('sanitizeByFields digs values out of nested noise', () => {
   const value = prompt.sanitizeByFields({ attrs: { a: 1, b: null, c: { nested: true }, '  ': 'blank key' } }, {}, itemGenerator)
   assert(value.attrs.a === '1', `a number becomes text: ${JSON.stringify(value.attrs.a)}`)
