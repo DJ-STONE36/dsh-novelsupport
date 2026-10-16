@@ -23,11 +23,11 @@
 ```powershell
 cd D:\documents\GitHub\my-project
 
-# 跑四套测试（409 项，约 30 秒）。全绿才动代码。
+# 跑四套测试（411 项，约 30 秒）。全绿才动代码。
 tools\run.cmd impl-selftest.mjs
 tools\run.cmd api-selftest.mjs
 tools\run.cmd client-selftest.mjs
-Remove-Item -Recurse -Force .verify   # 跑 live-check 之前先清掉这个目录
+New-Item -ItemType Directory -Force .verify | Out-Null   # live-check 要求这个目录【存在】
 tools\run.cmd live-check.mjs      # 需要宿主在跑；会在 .verify/ 里建临时项目
 
 # 改完客户端后必须重建（宿主半不需要，改动下次请求即生效）
@@ -40,9 +40,15 @@ tools\run.cmd package-plugin.mjs
 > **`live-check.mjs` 不能连跑两次** ✓ 它会在 `<cwd>/.verify/` 建出一个真项目并写章节，
 > 而**第二次它会主动拒绝启动**（`process.exit(2)`）✓ 这是**保护**，不是缺陷 ✓
 > 它防的是有人把仓库根当参数传进去 —— 那会写进作者真实的 `novel/` ✓
-> 两个坑：拒绝信息打在 **stderr** 上 ✗ 不在 stdout ✓ 所以 `| Select-String 'OK|FAIL'`
-> 这类过滤会**什么都看不到**，只留下一个光秃秃的 `exit 2` ✓ 看起来像"跑了但没输出" ✗；
-> 于是**四套连跑**这个固定动作第二次会**假红** ✓ 不是代码坏了 ✓
+> 三个坑：
+> - 拒绝信息打在 **stderr** 上 ✗ 不在 stdout ✓ 所以 `| Select-String 'OK|FAIL'`
+>   这类过滤会**什么都看不到**，只留下一个光秃秃的 `exit 2` ✓ 看起来像"跑了但没输出" ✗
+> - 于是**四套连跑**这个固定动作第二次会**假红** ✓ 不是代码坏了 ✓
+> - **反过来删掉 `.verify` 也会红** ✗ 它要求这个 root **存在**（`root defaults to <cwd>/.verify`
+>   **and must be an existing directory**）✓ 删掉会得到 `0 passed, 10 failed`，
+>   看起来比"拒绝启动"更像是插件坏了 ✗ 要重跑就先
+>   `Remove-Item -Recurse -Force .verify` **再** `New-Item -ItemType Directory .verify`
+>   （或只删里面的 `novel/`）✓
 
 **`tools\run.cmd` 是什么**：这台机器上的 Node 不在 `PATH` 里，一切都要用固定的 node 路径启动 ✓ `run.cmd` 就是那层包装 ✓ 直接 `node xxx.mjs` 会找不到 node ✓
 
@@ -170,7 +176,7 @@ tools\run.cmd package-plugin.mjs
   （例：`ChapterBody` 的 `list`/`editor` 槽位如果不是字面量也不是它能解析的局部赋值 → **直接 FAIL** ✓）
 - 断言要**对着源码/真实路由**核对 ✓ 不要对着"合理形状" ✓
 
-**测试分布**：`impl` 86 项（纯逻辑）· `api` 72 项（真实 HTTP）· `client` 241 项（纯函数 + 源码结构审计）· `live` 10 项（真的建项目、写章节、写盘再读回）
+**测试分布**：`impl` 88 项（纯逻辑）· `api` 72 项（真实 HTTP）· `client` 241 项（纯函数 + 源码结构审计）· `live` 10 项（真的建项目、写章节、写盘再读回）
 
 ---
 
@@ -188,6 +194,36 @@ tools\run.cmd package-plugin.mjs
 | **Electron 没有 `prompt/confirm/alert`** | 调用即报错 | 有测试扫描全部片段守住（注释先剥掉）✓ |
 | **`Number(null) === 0`** | 缺失的时间戳算成 1970 → 「56 年前」 | 用 `typeof x === 'number'` 严格判断 ✓ |
 | **`String(42)` 会变成名字** | 一个叫「42」的人物 | 非字符串一律拒绝 ✓ |
+| **插件按「裸名」加载会把宿主搞崩** ✗ | 同名插件从 npm 装进来，把 `@deepseek-ai/dsh-*` 旧版核心包当**普通依赖**拉进 profile 顶层 → **遮蔽宿主自带的运行时** → `dsh-app-boot` 的 peer 检查逐行禁用它们 → **宿主连崩 27 分钟** | 注册**用绝对路径** ✓ 见下 ✓ |
+| **`nodeLinker: hoisted`** ✗ | profile 的依赖全被抬到顶层 `node_modules`，冲突插件因此能越过宿主自带包 ✓ 是上面那条的放大器 | profile 的 `pnpm-workspace.yaml` **不要**设它 ✓ 默认的 isolated linker 把依赖留在各自子树里 ✓ |
+
+### 为什么插件注册要用绝对路径
+
+`@deepseek-ai/dsh-client-modules/lib/index.js` 只分两条路：
+
+```js
+name: isAbsolute(loaderName) ? pathToFileURL(loaderName).href : new URL(loaderName, baseUrl).href
+...
+try { return { path: createRequire(baseUrl).resolve(`${expectedPackageName}/package.json`) } } catch { return }
+```
+
+- **裸名**（`name: 'dsh-novel'`）→ 走 `createRequire(baseUrl)`，**也就是 profile 的 `node_modules`** ✓ 谁能往那儿装东西，谁就能换掉宿主加载的代码 ✗
+- **绝对路径**（`name: 'D:/…/lib/index.js'`）→ 走 `pathToFileURL`，**根本不查 `node_modules`** ✓
+
+所以本插件在 profile 的 `cordis.patch.yml` 里是这样注册的：
+
+```yaml
+- insert:
+    - id: dsh-novel
+      name: 'D:/documents/GitHub/my-project/lib/index.js'
+```
+
+**三条配套纪律**（少一条就会重演那次故障）：
+1. **不要**把 `dsh-novel` 写进 profile `package.json` 的 `dependencies` ✓ 本仓库是 `0.0.1`，写 `^0.1.1` 之类的范围会让 pnpm 去 npm 装**同名包** ✗
+2. **不要**把它加进 `dsh.profile.bundles` ✓ 那条路同样经 `node_modules` ✓
+3. 插件自己的 `package.json` **不要**声明 `@deepseek-ai/dsh-*` 的 peer/dependency ✓ 本插件 `peerDependencies` 为空，所以 `evaluatePluginCompatibility` **根本没有东西可评估** ✓
+
+**改完必须冷启动才算验证过** ✓ 刷新页面只重载渲染进程，**不重读插件注册** ✗
 
 ---
 
@@ -231,5 +267,5 @@ tools\run.cmd package-plugin.mjs
 
 **为什么这样比「把整个会话留着」可靠**：
 - 会话会被**压缩**（这个项目已经被压缩过一次 ✓ 细节在那一步就丢了 ✗）✓ 而且不能无限延长 ✓
-- 而**测试、注释、文档活在仓库里** ✓ 409 项检查把每一个决定和每一个踩过的坑都编码进去了 ✓ 改错了会**失败** ✓
+- 而**测试、注释、文档活在仓库里** ✓ 411 项检查把每一个决定和每一个踩过的坑都编码进去了 ✓ 改错了会**失败** ✓
 - 所以：**仓库是记忆 ✓ 会话是工作台** ✓ 工作台可以换 ✓ 记忆不会丢 ✓
