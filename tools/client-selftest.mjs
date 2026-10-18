@@ -6875,6 +6875,7 @@ check('every route field the client reads exists in the route that sends it', ()
   const contract = [
     ['handleAgentResult', 'finished', 'the phase can never be reached without it'],
     ['handleAgentResult', 'text', 'the transcript'],
+    ['handleDocumentPost', 'stat', 'the next save needs the mtime this write produced'],
     ['handleAgentResult', 'writes', 'the files the run touched'],
     ['handleAgentResult', 'usage', 'the cost line'],
     ['handleSessions', 'sessions', 'the picker is permanently empty otherwise'],
@@ -6904,6 +6905,32 @@ check('every route field the client reads exists in the route that sends it', ()
   assert(!/turnEnd/.test(agent.replace(/\/\/[^\n]*/g, '')), 'and no longer reads the `turnEnd` that route never sends')
   assert(/text: agentPromptText\(/.test(agent), 'the client sends `text` to /agent/prompt')
   assert(/issueBelongsTo\(issue, relPath\)/.test(core), 'and scopes warnings through the shared helper')
+})
+
+check('a document save carries the mtime it read, so a stale overwrite is refused', () => {
+  const core = readFileSync(join(ROOT, 'client', 'src', '10-core.js'), 'utf8')
+  // Both editable shapes — a JSON document and a chapter — send the mtime their
+  // working copy was read at. Without it the host cannot tell a normal save from one
+  // that would discard an agent's (or another window's) edit.
+  assert(/expectedMtimeMs: previous\.mtimeMs/.test(core), 'the JSON document save must send expectedMtimeMs')
+  const sends = core.match(/expectedMtimeMs/g) ?? []
+  assert(sends.length >= 2, `both the document and chapter saves must send it (found ${sends.length})`)
+  assert(/mtimeMs: body\.stat\?\.mtimeMs \?\? null/.test(core), 'the load must keep the mtime the host reported')
+  assert(/typeof result\?\.stat\?\.mtimeMs === 'number'/.test(core), 'and a successful save must adopt the new one')
+
+  const router = readFileSync(join(ROOT, 'lib', 'impl', 'router.js'), 'utf8')
+  assert(/document-changed/.test(router), 'the host must answer a conflict with document-changed')
+  assert(/expectedMtimeMs/.test(router), 'and must read the field the client sends')
+})
+
+check('the transcript read names its project, and the route checks it', () => {
+  const agent = readFileSync(join(ROOT, 'client', 'src', '62-agent.js'), 'utf8')
+  assert(/agent\/result\?sessionId=[^`]*&root=/.test(agent), '/agent/result must carry root')
+  const router = readFileSync(join(ROOT, 'lib', 'impl', 'router.js'), 'utf8')
+  assert(
+    /handleAgentResult[\s\S]{0,1600}?session-wrong-workspace/.test(router),
+    'the transcript route must refuse a session owned by another project',
+  )
 })
 
 check('MAINTENANCE.md still reports the real test distribution', () => {

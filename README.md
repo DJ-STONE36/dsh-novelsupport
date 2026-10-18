@@ -48,7 +48,7 @@ dsh plugin --profile desktop add ./dsh-novelsupport-0.1.0.tgz
   **没有东西可评估**，也就不会因为宿主升级而被迫逐行禁用。
 - **不需要给宿主打补丁。** 「交给 agent 写这一章」走的是 `resolveAgent` + `followup`，
   不碰 `sessionController.prompt`（那条路需要改已安装的 app.asar）。
-- **三栏界面 + 地图 + 时间轴 + 关系网** 这些都在客户端，离线自测覆盖 245 项。
+- **三栏界面 + 地图 + 时间轴 + 关系网** 这些都在客户端，离线自测覆盖 247 项。
 
 ## 目录结构
 

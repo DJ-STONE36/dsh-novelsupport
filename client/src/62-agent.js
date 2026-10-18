@@ -395,7 +395,11 @@ function AgentDraftControl(props) {
   react.useEffect(() => {
     if (sessionId === null || !started || phase !== 'reading') return undefined
     let live = true
-    fetch(api(`${API}/agent/result?sessionId=${encodeURIComponent(sessionId)}`))
+    // `root` is REQUIRED by the route, not decorative: a transcript is the agent's
+    // own words and may contain unpublished prose, so the host scopes the read to
+    // the session's workspace exactly as it scopes a prompt. Omitting it used to be
+    // accepted and would now be a 400.
+    fetch(api(`${API}/agent/result?sessionId=${encodeURIComponent(sessionId)}&root=${encodeURIComponent(root)}`))
       .then(async (response) => {
         const body = await response.json().catch(() => null)
         if (!response.ok) throw new Error(body?.error ?? `HTTP ${response.status}`)
@@ -417,7 +421,7 @@ function AgentDraftControl(props) {
     return () => {
       live = false
     }
-  }, [sessionId, started, phase])
+  }, [sessionId, started, phase, root])
 
   const start = () => {
     setStarted(true)

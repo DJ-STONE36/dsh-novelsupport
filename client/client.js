@@ -230,6 +230,9 @@ function useEndpoint(path) {
 function useDocument(root, relPath) {
   const [state, setState] = react.useState({
     loading: true, error: null, code: null, value: null, dirty: false, saving: false, issues: null, savedAt: null,
+    // The mtime this working copy was read at, sent back on save so the host can
+    // refuse a write that would discard an agent's (or another window's) edit.
+    mtimeMs: null,
   })
   const [nonce, setNonce] = react.useState(0)
   // Advisory findings from the last write, kept apart from `issues` (which is what
@@ -239,7 +242,7 @@ function useDocument(root, relPath) {
   react.useEffect(() => {
     setWarnings([])
     if (isBlank(root) || isBlank(relPath)) {
-      setState({ loading: false, error: null, code: null, value: null, dirty: false, saving: false, issues: null, savedAt: null })
+      setState({ loading: false, error: null, code: null, value: null, dirty: false, saving: false, issues: null, savedAt: null, mtimeMs: null })
       return undefined
     }
     let live = true
@@ -249,13 +252,13 @@ function useDocument(root, relPath) {
         const body = await response.json().catch(() => null)
         if (!live) return
         if (!response.ok) {
-          setState({ loading: false, error: body?.error ?? `HTTP ${response.status}`, code: body?.code ?? null, value: null, dirty: false, saving: false, issues: null, savedAt: null })
+          setState({ loading: false, error: body?.error ?? `HTTP ${response.status}`, code: body?.code ?? null, value: null, dirty: false, saving: false, issues: null, savedAt: null, mtimeMs: null })
         } else {
-          setState({ loading: false, error: null, code: null, value: body.value, dirty: false, saving: false, issues: null, savedAt: null })
+          setState({ loading: false, error: null, code: null, value: body.value, dirty: false, saving: false, issues: null, savedAt: null, mtimeMs: body.stat?.mtimeMs ?? null })
         }
       })
       .catch((error) => {
-        if (live) setState({ loading: false, error: String(error?.message ?? error), code: null, value: null, dirty: false, saving: false, issues: null, savedAt: null })
+        if (live) setState({ loading: false, error: String(error?.message ?? error), code: null, value: null, dirty: false, saving: false, issues: null, savedAt: null, mtimeMs: null })
       })
     return () => {
       live = false
@@ -277,7 +280,8 @@ function useDocument(root, relPath) {
   const save = react.useCallback(() => {
     setState((previous) => {
       if (previous.value === null || previous.saving) return previous
-      const body = JSON.stringify({ root, path: relPath, value: previous.value })
+      const expected = typeof previous.mtimeMs === 'number' ? { expectedMtimeMs: previous.mtimeMs } : {}
+      const body = JSON.stringify({ root, path: relPath, value: previous.value, ...expected })
       fetch(api(`${API}/document`), { method: 'POST', headers: WRITE_HEADERS, body })
         .then(async (response) => {
           const result = await response.json().catch(() => null)
@@ -285,7 +289,13 @@ function useDocument(root, relPath) {
             if (!response.ok) {
               return { ...current, saving: false, code: result?.code ?? null, error: result?.error ?? `HTTP ${response.status}`, issues: result?.issues ?? null }
             }
-            return { ...current, saving: false, dirty: false, error: null, code: null, issues: null, savedAt: new Date().toLocaleTimeString() }
+            return {
+              ...current,
+              // The mtime of the file this write produced, so the NEXT save is
+              // compared against what is actually on disk.
+              mtimeMs: typeof result?.stat?.mtimeMs === 'number' ? result.stat.mtimeMs : current.mtimeMs,
+              saving: false, dirty: false, error: null, code: null, issues: null, savedAt: new Date().toLocaleTimeString(),
+            }
           })
           if (response.ok) {
             // Advisory findings scoped to this document, so e.g. an open relation
@@ -449,6 +459,7 @@ function useChapter(root, relPath) {
   const [state, setState] = react.useState({
     loading: true, error: null, code: null, meta: null, body: '',
     dirty: false, saving: false, issues: null, savedAt: null, frontMatterError: null, wordCount: 0,
+    mtimeMs: null,
   })
   const [nonce, setNonce] = react.useState(0)
   // Warnings are kept apart from `issues`: they are advisory (an unresolved name
@@ -462,6 +473,7 @@ function useChapter(root, relPath) {
       setState({
         loading: false, error: null, code: null, meta: null, body: '',
         dirty: false, saving: false, issues: null, savedAt: null, frontMatterError: null, wordCount: 0,
+        mtimeMs: null,
       })
       return undefined
     }
@@ -475,7 +487,7 @@ function useChapter(root, relPath) {
           setState({
             loading: false, error: body?.error ?? `HTTP ${response.status}`, code: body?.code ?? null,
             meta: null, body: '', dirty: false, saving: false, issues: null, savedAt: null,
-            frontMatterError: null, wordCount: 0,
+            frontMatterError: null, wordCount: 0, mtimeMs: null,
           })
         } else {
           setState({
@@ -484,6 +496,7 @@ function useChapter(root, relPath) {
             dirty: false, saving: false, issues: null, savedAt: null,
             frontMatterError: body.frontMatterError ?? null,
             wordCount: countWords(body.body ?? ''),
+            mtimeMs: body.stat?.mtimeMs ?? null,
           })
         }
       })
@@ -492,7 +505,7 @@ function useChapter(root, relPath) {
           setState({
             loading: false, error: String(error?.message ?? error), code: null,
             meta: null, body: '', dirty: false, saving: false, issues: null, savedAt: null,
-            frontMatterError: null, wordCount: 0,
+            frontMatterError: null, wordCount: 0, mtimeMs: null,
           })
         }
       })
@@ -519,7 +532,8 @@ function useChapter(root, relPath) {
   const save = react.useCallback(() => {
     setState((previous) => {
       if (previous.meta === null || previous.saving) return previous
-      const payload = JSON.stringify({ root, path: relPath, meta: previous.meta, body: previous.body })
+      const expected = typeof previous.mtimeMs === 'number' ? { expectedMtimeMs: previous.mtimeMs } : {}
+      const payload = JSON.stringify({ root, path: relPath, meta: previous.meta, body: previous.body, ...expected })
       fetch(api(`${API}/document`), { method: 'POST', headers: WRITE_HEADERS, body: payload })
         .then(async (response) => {
           const result = await response.json().catch(() => null)
@@ -530,7 +544,11 @@ function useChapter(root, relPath) {
                 error: result?.error ?? `HTTP ${response.status}`, issues: result?.issues ?? null,
               }
             }
-            return { ...current, saving: false, dirty: false, error: null, code: null, issues: null, savedAt: new Date().toLocaleTimeString() }
+            return {
+              ...current,
+              mtimeMs: typeof result?.stat?.mtimeMs === 'number' ? result.stat.mtimeMs : current.mtimeMs,
+              saving: false, dirty: false, error: null, code: null, issues: null, savedAt: new Date().toLocaleTimeString(),
+            }
           })
           if (response.ok) {
             // Advisory findings for this chapter only, so the author sees e.g. a
@@ -4419,7 +4437,11 @@ function AgentDraftControl(props) {
   react.useEffect(() => {
     if (sessionId === null || !started || phase !== 'reading') return undefined
     let live = true
-    fetch(api(`${API}/agent/result?sessionId=${encodeURIComponent(sessionId)}`))
+    // `root` is REQUIRED by the route, not decorative: a transcript is the agent's
+    // own words and may contain unpublished prose, so the host scopes the read to
+    // the session's workspace exactly as it scopes a prompt. Omitting it used to be
+    // accepted and would now be a 400.
+    fetch(api(`${API}/agent/result?sessionId=${encodeURIComponent(sessionId)}&root=${encodeURIComponent(root)}`))
       .then(async (response) => {
         const body = await response.json().catch(() => null)
         if (!response.ok) throw new Error(body?.error ?? `HTTP ${response.status}`)
@@ -4441,7 +4463,7 @@ function AgentDraftControl(props) {
     return () => {
       live = false
     }
-  }, [sessionId, started, phase])
+  }, [sessionId, started, phase, root])
 
   const start = () => {
     setStarted(true)

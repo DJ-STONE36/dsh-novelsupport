@@ -21,13 +21,15 @@
 ## 1. 三十秒上手
 
 ```powershell
-cd D:\documents\GitHub\my-project
+cd D:\documents\GitHub\dsh-novelsupport
 
-# 跑四套测试（415 项，约 30 秒）。全绿才动代码。
+# 跑四套测试（435 项，约 30 秒）。全绿才动代码。
 tools\run.cmd impl-selftest.mjs
 tools\run.cmd api-selftest.mjs
 tools\run.cmd client-selftest.mjs
 New-Item -ItemType Directory -Force .verify | Out-Null   # live-check 要求这个目录【存在】
+# 用宿主的真实端口：脚本默认 19387，端口不对会 10 条全 fetch failed（看起来像插件坏了）
+$env:DSH_NOVEL_BASE='http://127.0.0.1:<宿主端口>/dsh-novel'
 tools\run.cmd live-check.mjs      # 需要宿主在跑；会在 .verify/ 里建临时项目
 
 # 改完客户端后必须重建（宿主半不需要，改动下次请求即生效）
@@ -90,8 +92,10 @@ tools\run.cmd live-check.mjs
 
 一个 **DeepSeek Harness 插件**，给长篇小说作者用：三栏界面、地图、时间轴、人物/物品/地点/组织的关系网、章节正文、导出全书、纯文本批量导入、把一章交给 agent 写。
 
-- 插件挂在 profile 里是靠 **junction**：`D:\dsh-home\profiles\desktop\node_modules\dsh-novel` → 本仓库 ✓
-- 所以本仓库的改动**立刻生效** ✓ 这也是为什么「打包」是独立的一步（见 `INSTALL.md`）✓
+- 插件当前按**包名**装进 profile：`D:\dsh-home\profiles\desktop\node_modules\dsh-novelsupport`
+  是一份**解包副本**（不是指回本仓库的 junction），所以本仓库的 `lib/**` 改动**不会立刻生效** ✓
+  要重新打包 + 重装 + 重启（见第 1 节那张表）✓ 这也是为什么「打包」是独立的一步（见 `INSTALL.md`）✓
+  （2026-10-16 之前曾是 junction；那次按裸名安装把宿主搞崩后改成了现在这种形态 ✓）
 - 它同时是一个**真实在用的作品仓库**：`novel/` 里有一位作者正在写的小说 ✓ **改代码时不要动 `novel/`** ✓（测试用的是临时目录 ✓）
 
 ---
@@ -193,6 +197,25 @@ tools\run.cmd live-check.mjs
    `renderToString` **不跑 effect、不跑 handler、没有盒模型** ✓ 所以 fetch 驱动的组件在测试里永远只能渲染 loading ✓
    做法：**分支主体的逻辑抽成 props 驱动的 `*Body`**，界面只负责取数 ✓ 所有判断都放进纯函数 ✓ 这样离线测试才能断言真实行为 ✓
 
+### 2026-10-18 新增的三条硬约束（安全审查之后）
+
+9. **跨源写保护必须是两层，而且第二层归插件**
+   自定义写头只挡住「真正的跨源请求」✓ DNS rebinding 下浏览器认为请求同源，**预检不会发生** ✗
+   而 `ctx.webServer.register()` 挂的前缀路由在宿主的 token 校验与 Host/Origin 栅栏**之下** ✓
+   所以 `router.handle()` 必须先跑 `isTrustedRequest`（loopback / `webStartup.host` /
+   `trustedHosts`，拒绝 `Sec-Fetch-Site: cross-site`，Origin 必须同 authority）✓
+   没有 `webStartup` 就**只允许 loopback** ✓ 别把这条删掉去"简化" ✗
+
+10. **每一章 front matter 都按不可信输入解析**
+    `loadChapters` 被每个读写请求调用 ✓ 所以 `yamlLoad` 固定 `{ maxAliases: 0 }`
+    并限制 128 KB ✓ 别名（`*name`）在 front matter 里没有合法用途，
+    而默认 `maxAliases: -1` 下 1 KB 就能展开到几百 MB ✓ 这是持久 DoS（文件活着就一直触发）✗
+
+11. **整文档写入必须带回读到的 mtime**
+    GUI 与 agent 会写同一批文件 ✓ 不带 `expectedMtimeMs` 的写入会静默覆盖并发修改 ✗
+    服务端不匹配回 409 `document-changed`，成功响应回传新的 `stat.mtimeMs` ✓
+    `.prev` 只有一代，是保险，不是合并 ✓
+
 ---
 
 ## 5. 验证纪律（这个仓库最值钱的部分）
@@ -210,7 +233,7 @@ tools\run.cmd live-check.mjs
   （例：`ChapterBody` 的 `list`/`editor` 槽位如果不是字面量也不是它能解析的局部赋值 → **直接 FAIL** ✓）
 - 断言要**对着源码/真实路由**核对 ✓ 不要对着"合理形状" ✓
 
-**测试分布**：`impl` 88 项（纯逻辑）· `api` 72 项（真实 HTTP）· `client` 245 项（纯函数 + 源码结构审计）· `live` 10 项（真的建项目、写章节、写盘再读回）
+**测试分布**：`impl` 97 项（纯逻辑）· `api` 81 项（真实 HTTP）· `client` 247 项（纯函数 + 源码结构审计）· `live` 10 项（真的建项目、写章节、写盘再读回）
 
 ---
 
@@ -228,10 +251,12 @@ tools\run.cmd live-check.mjs
 | **Electron 没有 `prompt/confirm/alert`** | 调用即报错 | 有测试扫描全部片段守住（注释先剥掉）✓ |
 | **`Number(null) === 0`** | 缺失的时间戳算成 1970 → 「56 年前」 | 用 `typeof x === 'number'` 严格判断 ✓ |
 | **`String(42)` 会变成名字** | 一个叫「42」的人物 | 非字符串一律拒绝 ✓ |
-| **插件按「裸名」加载会把宿主搞崩** ✗ | 同名插件从 npm 装进来，把 `@deepseek-ai/dsh-*` 旧版核心包当**普通依赖**拉进 profile 顶层 → **遮蔽宿主自带的运行时** → `dsh-app-boot` 的 peer 检查逐行禁用它们 → **宿主连崩 27 分钟** | 注册**用绝对路径** ✓ 见下 ✓ |
-| **`nodeLinker: hoisted`** ✗ | profile 的依赖全被抬到顶层 `node_modules`，冲突插件因此能越过宿主自带包 ✓ 是上面那条的放大器 | profile 的 `pnpm-workspace.yaml` **不要**设它 ✓ 默认的 isolated linker 把依赖留在各自子树里 ✓ |
+| **插件按「裸名」加载会把宿主搞崩** ✗ | 2026-10-16：npm 上**同名的 `dsh-novel@0.1.1`** 被装进 profile，把 `@deepseek-ai/dsh-*` 旧版核心包当**普通依赖**拉进顶层 → **遮蔽宿主自带的运行时** → `dsh-app-boot` 的 peer 检查逐行禁用它们 → **宿主连崩 27 分钟** | 包名已改为 `dsh-novelsupport`（npm 上 404）；**不要**再装 npm 的 `dsh-novel` ✓ 见下 ✓ |
+| **`nodeLinker: hoisted`** ✗ | profile 的依赖全被抬到顶层 `node_modules`，冲突插件因此能越过宿主自带包 ✓ 是上面那条的放大器 | profile 的 `pnpm-workspace.yaml` **不要**设它 ✓ 默认的 isolated linker 把依赖留在各自子树里 ✓ **`dsh plugin add` 新建 profile 时默认会写它，装完记得删** ✓ |
+| **目录改名会断掉 `node_modules` 里的 junction** ✗ | 15 个 junction 仍指旧目录 → 测试第一行就 `ERR_MODULE_NOT_FOUND: js-yaml` | 一次性完全权限把链接重指到新路径 ✓ 沙箱**禁止**在 `node_modules` 下删/建条目 ✓ 只换链接、不动包内容 ✓ |
+| **仓库根的 `.pnpm-store/v11/index.db` 打不开** ✗ | pnpm 报 `SQLITE_ERROR: unable to open database file` | 加 `--store-dir <临时目录>` ✓ 见 `HANDOVER-2026-10-16.md` 第 5 节 #12 ✓ |
 
-### 为什么插件注册要用绝对路径
+### 什么时候必须用绝对路径，什么时候可以用包名
 
 `@deepseek-ai/dsh-client-modules/lib/index.js` 只分两条路：
 
@@ -244,17 +269,24 @@ try { return { path: createRequire(baseUrl).resolve(`${expectedPackageName}/pack
 - **裸名**（`name: 'dsh-novel'`）→ 走 `createRequire(baseUrl)`，**也就是 profile 的 `node_modules`** ✓ 谁能往那儿装东西，谁就能换掉宿主加载的代码 ✗
 - **绝对路径**（`name: 'D:/…/lib/index.js'`）→ 走 `pathToFileURL`，**根本不查 `node_modules`** ✓
 
-所以本插件在 profile 的 `cordis.patch.yml` 里是这样注册的：
+**2026-10-16 那次崩溃的关键是「npm 上有一个同名但无关的包」**，不是「包名解析」本身：
+`dsh-novel@0.1.1` 把八个 `@deepseek-ai/dsh-*@0.1.0-rc.6` 当普通依赖拉进顶层，遮蔽了宿主运行时。
+
+**所以现在（包名已改为 `dsh-novelsupport`、npm 上仍是 404、`peerDependencies` 为空）用包名注册是安全的**，
+而且这就是发行形态 ✓ 2026-10-18 从 GitHub 真装验证过（`dsh plugin add`，见
+`HANDOVER-2026-10-16.md` 第 2 节）✓ 绝对路径只用于**开发期**。
+
+当前 profile 的 `cordis.patch.yml` 是这样注册的：
 
 ```yaml
 - insert:
     - id: dsh-novel
-      name: 'D:/documents/GitHub/my-project/lib/index.js'
+      name: 'dsh-novelsupport'
 ```
 
-**三条配套纪律**（少一条就会重演那次故障）：
-1. **不要**把 `dsh-novel` 写进 profile `package.json` 的 `dependencies` ✓ 本仓库是 `0.0.1`，写 `^0.1.1` 之类的范围会让 pnpm 去 npm 装**同名包** ✗
-2. **不要**把它加进 `dsh.profile.bundles` ✓ 那条路同样经 `node_modules` ✓
+**三条配套纪律**：
+1. **不要**把 **`dsh-novel`（旧名）** 写进 profile `package.json` 的 `dependencies` ✓ 那是 npm 上无关的包，会拉进 8 个 rc.6 核心包 ✗
+2. **不要**给 profile 设 `nodeLinker: hoisted` ✓ `dsh plugin add` 新建的 profile 默认会带它 —— 装完删掉 ✓
 3. 插件自己的 `package.json` **不要**声明 `@deepseek-ai/dsh-*` 的 peer/dependency ✓ 本插件 `peerDependencies` 为空，所以 `evaluatePluginCompatibility` **根本没有东西可评估** ✓
 
 **改完必须冷启动才算验证过** ✓ 刷新页面只重载渲染进程，**不重读插件注册** ✗
@@ -400,16 +432,20 @@ Windows PowerShell 5.1 会按 ANSI 读 BOM-less 文件 → **解析失败** ✗
 
 ## 9. 换一个会话接手时，直接粘贴这段
 
-> 接手 `D:\documents\GitHub\my-project`（一个 DSH 小说插件）。
-> **第一步先确认 `pwd` 就是 `D:\documents\GitHub\my-project`** —— 会话的工作目录跟着工作区走，
-> 不在这个目录里的话下面所有命令都会找不到文件。
-> 然后读 `docs/MAINTENANCE.md`：第 1 节跑四套测试确认基线全绿，第 3 节是架构图，
-> 第 4 节是八条必须遵守的不变式，第 5 节是验证纪律（每条守卫都要种回验证过）。
-> 宿主半改 `lib/**`（下次请求即生效），客户端半改 `client/src/**`（必须 `tools\run.cmd build-client.mjs` 再刷新页面）。
-> 不要动 `novel/`（那是作者的作品）。要跑任何命令都用 `tools\run.cmd`。
-> 现在请先跑一遍测试，然后告诉我结果和你打算做什么。
+> **先读 [`docs/HANDOVER-2026-10-16.md`](HANDOVER-2026-10-16.md)** —— 那里是**最近一次会话结束时**的
+> 状态：目录已改名、npm/发行进度、三个待决事项、以及那次会话踩的九个坑 ✓ 下面这段通用开场白仍然适用 ✓
+>
+> 接手 `D:\documents\GitHub\dsh-novelsupport`（一个 DSH 小说插件；**包名 `dsh-novelsupport`，
+> 插件 id 仍是 `dsh-novel`**）。**本地目录曾在 2026-10-16 从 `my-project` 改名为 `dsh-novelsupport`** ——
+> 工作目录若还指向旧路径，所有工具都会报 `ENOENT realpath`。
+> **第一步先确认 `pwd`**，然后读 `docs/MAINTENANCE.md` 与 `docs/HANDOVER-2026-10-16.md`。
+> 先跑四套测试确认基线全绿（`impl` / `api` / `client` / `live`，一律用 `tools\run.cmd`）。
+> **生效方式取决于「从哪儿装的」**（第 1 节那张表）：现在是从 profile 的 `node_modules`
+> 按**包名**装的 ⇒ 改完要**重新打包 + 重装 + 重启** ✗ 「下次请求即生效」只属于绝对路径注册 ✓
+> 不要动 `novel/`（那是作者的作品）。
+
 
 **为什么这样比「把整个会话留着」可靠**：
 - 会话会被**压缩**（这个项目已经被压缩过一次 ✓ 细节在那一步就丢了 ✗）✓ 而且不能无限延长 ✓
-- 而**测试、注释、文档活在仓库里** ✓ 415 项检查把每一个决定和每一个踩过的坑都编码进去了 ✓ 改错了会**失败** ✓
+- 而**测试、注释、文档活在仓库里** ✓ 435 项检查把每一个决定和每一个踩过的坑都编码进去了 ✓ 改错了会**失败** ✓
 - 所以：**仓库是记忆 ✓ 会话是工作台** ✓ 工作台可以换 ✓ 记忆不会丢 ✓

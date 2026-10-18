@@ -38,6 +38,7 @@ import * as prompt from '../lib/impl/prompt.js'
 import * as context from '../lib/impl/context.js'
 import * as chapterContext from '../lib/impl/chapter-context.js'
 import * as manuscript from '../lib/impl/manuscript.js'
+import * as router from '../lib/impl/router.js'
 
 let passed = 0
 const failures = []
@@ -1472,6 +1473,87 @@ check('the package manifest promises only files that exist', () => {
       'the author\'s chapters must stay tracked — only the generated backups are excluded',
     )
   }
+})
+
+// --- request fence ---------------------------------------------------------
+//
+// The plugin mounts a raw prefix route BELOW the host's own token check and its
+// Host/Origin fence (verified 2026-10-18: `/` and `/api` answered 401/403 for a
+// foreign Host while `/dsh-novel/...` answered 200). These checks pin the policy
+// the plugin now enforces itself — and each one fails if the fence is removed,
+// which is the point: a rebinding page reaches the host under its own hostname.
+const fakeRequest = (headers) => ({ headers })
+
+check('fence accepts loopback hosts', () => {
+  assert(router.isTrustedRequest(fakeRequest({ host: '127.0.0.1:27479' })) === true, '127.0.0.1 must be trusted')
+  assert(router.isTrustedRequest(fakeRequest({ host: 'localhost:8080' })) === true, 'localhost must be trusted')
+  assert(router.isTrustedRequest(fakeRequest({ host: '[::1]:27479' })) === true, 'the IPv6 loopback must be trusted')
+  assert(router.isTrustedRequest(fakeRequest({ host: '127.9.9.9' })) === true, 'all of 127/8 is loopback')
+})
+
+check('fence refuses a forged or missing Host', () => {
+  assert(router.isTrustedRequest(fakeRequest({ host: 'evil.example:27479' })) === false, 'a foreign Host must be refused')
+  assert(router.isTrustedRequest(fakeRequest({ host: '127.0.0.1.evil.example:27479' })) === false, 'a look-alike host must be refused')
+  assert(router.isTrustedRequest(fakeRequest({})) === false, 'a request without a Host must be refused')
+})
+
+check('fence refuses a cross-site request even from loopback', () => {
+  const request = fakeRequest({ host: '127.0.0.1:27479', 'sec-fetch-site': 'cross-site' })
+  assert(router.isTrustedRequest(request) === false, 'Sec-Fetch-Site: cross-site must be refused')
+})
+
+check('fence requires an attached Origin to be the same authority', () => {
+  const good = fakeRequest({ host: '127.0.0.1:27479', origin: 'http://127.0.0.1:27479' })
+  assert(router.isTrustedRequest(good) === true, 'the page\'s own origin must be accepted')
+  const bad = fakeRequest({ host: '127.0.0.1:27479', origin: 'http://evil.example:27479' })
+  assert(router.isTrustedRequest(bad) === false, 'a foreign Origin must be refused')
+  const wrongPort = fakeRequest({ host: '127.0.0.1:27479', origin: 'http://127.0.0.1:3000' })
+  assert(router.isTrustedRequest(wrongPort) === false, 'a different port is a different origin')
+})
+
+check('fence honours the deployment\'s own bind address and trusted hosts', () => {
+  const startup = { host: '10.0.0.7', trustedHosts: ['app.example', 'studio.example:8443'] }
+  assert(router.isTrustedRequest(fakeRequest({ host: '10.0.0.7:27479' }), startup) === true, 'the bind address must be trusted')
+  assert(router.isTrustedRequest(fakeRequest({ host: 'app.example' }), startup) === true, 'a port-less trusted host matches any port')
+  assert(router.isTrustedRequest(fakeRequest({ host: 'studio.example:8443' }), startup) === true, 'an exact trusted host:port matches')
+  assert(router.isTrustedRequest(fakeRequest({ host: 'studio.example:9000' }), startup) === false, 'a trusted host on another port must not match')
+  assert(router.isTrustedRequest(fakeRequest({ host: 'other.example' }), startup) === false, 'an unlisted host must be refused')
+})
+
+// --- front matter bounds ---------------------------------------------------
+check('front matter refuses YAML aliases, which are the expansion bomb', () => {
+  // 6 levels of ten references each: ~1 KB of text, 10^6 leaves if expanded.
+  let text = 'a0: &a0 ["x","x","x","x","x","x","x","x","x","x"]\n'
+  let prev = 'a0'
+  for (let level = 1; level <= 6; level += 1) {
+    text += `a${level}: &a${level} [${Array(10).fill(`*${prev}`).join(',')}]\n`
+    prev = `a${level}`
+  }
+  const started = Date.now()
+  const parsed = frontmatter.parseFrontMatter(`---\n${text}---\n正文\n`)
+  const elapsed = Date.now() - started
+  assert(parsed.error !== null && /alias/i.test(parsed.error), `an alias bomb must be refused, got: ${JSON.stringify(parsed.error)}`)
+  assert(parsed.body === '正文\n', 'the prose must still come back so the author can open the file')
+  assert(elapsed < 1000, `refusing must happen before expansion, took ${elapsed}ms`)
+})
+
+check('front matter still accepts a plain anchor with no alias', () => {
+  const parsed = frontmatter.parseFrontMatter('---\ntitle: &t 第一章\norder: 10\n---\n正文\n')
+  assert(parsed.error === null, `an anchor without an alias is harmless: ${parsed.error}`)
+  assert(parsed.meta.title === '第一章', `unexpected title ${JSON.stringify(parsed.meta.title)}`)
+})
+
+check('front matter refuses an oversized block', () => {
+  const huge = `title: ${'x'.repeat(200 * 1024)}\n`
+  const parsed = frontmatter.parseFrontMatter(`---\n${huge}---\n正文\n`)
+  assert(parsed.error !== null && /too large/.test(parsed.error), `expected a size refusal, got: ${JSON.stringify(parsed.error)}`)
+  assert(parsed.body === '正文\n', 'the prose must still be readable')
+})
+
+// --- chapter path shape ----------------------------------------------------
+check('a chapter path is one level, matching what the loader scans', () => {
+  assert(schema.isChapterPath('draft/ch-0001.md') === true, 'a top-level chapter must be recognised')
+  assert(schema.isChapterPath('draft/sub/ch-0001.md') === false, 'a nested chapter is invisible to loadChapters and must not count')
 })
 
 // --- report ----------------------------------------------------------------

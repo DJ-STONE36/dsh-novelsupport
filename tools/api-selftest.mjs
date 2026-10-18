@@ -9,7 +9,7 @@
  * Run: node tools/api-selftest.mjs
  */
 
-import { createServer } from 'node:http'
+import { createServer, request as httpRequest } from 'node:http'
 import { mkdirSync, mkdtempSync, rmSync, existsSync, readFileSync, readdirSync, statSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { dirname, join, sep } from 'node:path'
@@ -41,7 +41,8 @@ const server = createServer((request, response) => {
 })
 
 await new Promise((resolvePromise) => server.listen(0, '127.0.0.1', resolvePromise))
-const base = `http://127.0.0.1:${server.address().port}/dsh-novel`
+const port = server.address().port
+const base = `http://127.0.0.1:${port}/dsh-novel`
 
 let passed = 0
 const failures = []
@@ -75,6 +76,37 @@ async function call(method, path, { body, headers = {}, raw } = {}) {
   return { status: response.status, json, text, headers: response.headers }
 }
 
+/**
+ * A raw GET whose headers are sent verbatim.
+ *
+ * `fetch` normalizes some headers and the Host header is exactly the one under
+ * test, so the fence cases go through node:http — the same client a rebinding
+ * page's bytes would arrive from.
+ */
+function rawCall(path, headers) {
+  const url = new URL(`${base}${path}`)
+  return new Promise((resolvePromise, rejectPromise) => {
+    const request = httpRequest(
+      { host: url.hostname, port: url.port, path: `${url.pathname}${url.search}`, method: 'GET', headers },
+      (response) => {
+        let text = ''
+        response.on('data', (chunk) => { text += chunk })
+        response.on('end', () => {
+          let json = null
+          try {
+            json = JSON.parse(text)
+          } catch {
+            /* non-JSON body kept as text */
+          }
+          resolvePromise({ status: response.statusCode, json, text, headers: response.headers })
+        })
+      },
+    )
+    request.on('error', rejectPromise)
+    request.end()
+  })
+}
+
 const root = mkdtempSync(join(tmpdir(), 'dsh-novel-api-'))
 const projectDir = join(root, 'novel')
 
@@ -85,6 +117,31 @@ try {
     assert(r.status === 200, `status ${r.status}`)
     assert(r.json.plugin === 'dsh-novel', 'wrong plugin name')
     assert(Array.isArray(r.json.impl.files) && r.json.impl.files.length >= 6, `impl files not reported: ${r.text}`)
+  })
+
+  // ---- request fence ------------------------------------------------------
+  //
+  // The host's own routes answer 401/403 for a foreign Host; this prefix route is
+  // mounted BELOW that fence, so the plugin mirrors it. Without these checks a
+  // DNS-rebinding page (same-origin under its own hostname) could read and write
+  // novels and drive the agent — and every assertion below fails if the fence is
+  // removed, because the request would reach the route.
+  await check('a forged Host cannot reach the plugin', async () => {
+    const r = await rawCall('/ping', { host: 'evil.example:27479' })
+    assert(r.status === 403, `expected 403 for a foreign Host, got ${r.status}: ${r.text.slice(0, 120)}`)
+    assert(r.json.code === 'untrusted-origin', `wrong code: ${r.json.code}`)
+  })
+
+  await check('a cross-site marker is refused even from loopback', async () => {
+    const r = await rawCall('/ping', { host: `127.0.0.1:${port}`, 'sec-fetch-site': 'cross-site' })
+    assert(r.status === 403, `expected 403, got ${r.status}`)
+  })
+
+  await check('an attached Origin must be the same authority', async () => {
+    const foreign = await rawCall('/ping', { host: `127.0.0.1:${port}`, origin: 'http://evil.example' })
+    assert(foreign.status === 403, `a foreign Origin must be refused, got ${foreign.status}`)
+    const same = await rawCall('/ping', { host: `127.0.0.1:${port}`, origin: `http://127.0.0.1:${port}` })
+    assert(same.status === 200, `the page's own origin must pass, got ${same.status}`)
   })
 
   await check('GET /catalog degrades when the host composes no llm service', async () => {
@@ -174,6 +231,42 @@ try {
     assert(r.json.kind === 'chapter', 'wrong kind')
     assert(r.json.meta.title === '第一章 青云山下', `title lost: ${r.text}`)
     assert(r.json.frontMatterError === null, `front matter error: ${r.json.frontMatterError}`)
+  })
+
+  // ---- optimistic concurrency ---------------------------------------------
+  //
+  // The agent writes chapters and documents with its OWN file tools, so a GUI
+  // working copy can be stale by the time it saves. A whole-document write used to
+  // discard that silently; `.prev` is one generation, not a merge. The mtime the
+  // caller read travels back with the write, and a mismatch is a 409.
+  await check('a document write with a stale mtime is refused, not applied', async () => {
+    const rel = 'setting/world.json'
+    const read = await call('GET', `/document?root=${encodeURIComponent(root)}&path=${encodeURIComponent(rel)}`)
+    assert(read.status === 200, `read failed: ${read.status} ${read.text}`)
+    const mtime = read.json.stat?.mtimeMs
+    assert(typeof mtime === 'number', `GET /document must report the mtime, got ${JSON.stringify(read.json.stat)}`)
+
+    const stale = await call('POST', '/document', {
+      body: { root, path: rel, value: { sections: [], rules: [] }, expectedMtimeMs: mtime - 1000 },
+    })
+    assert(stale.status === 409, `a stale write must be refused, got ${stale.status}: ${stale.text.slice(0, 160)}`)
+    assert(stale.json.code === 'document-changed', `wrong code: ${stale.json.code}`)
+    assert(stale.json.details?.actualMtimeMs === mtime, `the conflict must name the actual mtime: ${stale.text.slice(0, 200)}`)
+
+    const fresh = await call('POST', '/document', {
+      body: { root, path: rel, value: { sections: [], rules: [] }, expectedMtimeMs: mtime },
+    })
+    assert(fresh.status === 200, `a matching write must succeed, got ${fresh.status}: ${fresh.text.slice(0, 160)}`)
+    assert(typeof fresh.json.stat?.mtimeMs === 'number', 'the response must carry the new mtime for the next save')
+
+    const replay = await call('POST', '/document', {
+      body: { root, path: rel, value: { sections: [], rules: [] }, expectedMtimeMs: mtime },
+    })
+    assert(replay.status === 409, `replaying the old mtime must conflict, got ${replay.status}`)
+
+    // Callers that cannot know an mtime (creation, older clients) keep working.
+    const legacy = await call('POST', '/document', { body: { root, path: rel, value: { sections: [], rules: [] } } })
+    assert(legacy.status === 200, `a write without expectedMtimeMs must stay compatible, got ${legacy.status}`)
   })
 
   // ---- validation gate ----------------------------------------------------
@@ -908,6 +1001,23 @@ try {
     assert(up.json.bytes > 0, 'bytes were decoded')
   })
 
+  await check('an SVG asset is served sandboxed, so navigating to it cannot run script', async () => {
+    // `<image>` never runs an SVG's scripts, but a direct navigation DOES — in the same origin
+    // as the UI, where a script could call every write route with the header. `sandbox` turns
+    // a navigated SVG into a script-less document; `nosniff` stops a mislabelled file being
+    // reinterpreted. Neither affects the map's `<image>` rendering.
+    const svg = '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    const up = await call('POST', '/asset', {
+      body: { root, name: 'unsafe.svg', data: Buffer.from(svg).toString('base64') },
+    })
+    assert(up.status === 200, `svg import failed: ${up.status} ${up.text}`)
+    const got = await call('GET', `/asset?root=${encodeURIComponent(root)}&path=${encodeURIComponent('setting/map/assets/unsafe.svg')}`)
+    assert(got.status === 200, `svg serve failed: ${got.status}`)
+    assert(got.headers.get('content-type') === 'image/svg+xml', `wrong type: ${got.headers.get('content-type')}`)
+    assert(got.headers.get('content-security-policy') === 'sandbox', `missing CSP sandbox: ${got.headers.get('content-security-policy')}`)
+    assert(got.headers.get('x-content-type-options') === 'nosniff', 'missing nosniff')
+  })
+
   await check('the asset route refuses everything outside its one directory', async () => {
     // This route serves bytes to a browser, so the allow-list matters more here than anywhere
     // else in the API: without it, any project file becomes fetchable through an image URL.
@@ -986,6 +1096,69 @@ try {
     assert(read.json.value.layers[0].strokes[0][1][0] === 10, `stroke coordinates were altered: ${JSON.stringify(read.json.value.layers)}`)
     assert(read.json.value.canvas.width === 800, 'the canvas width must round-trip')
   })
+
+  // ---- chapters live at one level ----------------------------------------
+  await check('a chapter cannot be created in a subdirectory, where nothing would list it', async () => {
+    // `loadChapters` scans `draft/` one level deep, so `draft/sub/x.md` used to be written
+    // with a 201 and then be invisible to `/chapters`, the validator and `nextChapterId`.
+    const create = await call('POST', '/chapter', { body: { root, id: 'sub/x', title: '隐身章' } })
+    assert(create.status === 400, `a nested chapter id must be refused, got ${create.status}: ${create.text.slice(0, 160)}`)
+    assert(create.json.code === 'bad-chapter-id', `wrong code: ${create.json.code}`)
+
+    const write = await call('POST', '/document', {
+      body: { root, path: 'draft/sub/y.md', content: '---\nid: ch-0009\ntitle: 隐身\n---\n正文\n' },
+    })
+    assert(write.status === 400, `a nested chapter write must be refused, got ${write.status}: ${write.text.slice(0, 160)}`)
+    assert(write.json.code === 'chapter-path-nested', `wrong code: ${write.json.code}`)
+    assert(!existsSync(join(projectDir, 'draft', 'sub')), 'nothing may be created at that path')
+  })
+
+  // ---- the agent transcript is scoped to its project ----------------------
+  //
+  // Session ids are not authority: `/sessions?root=…` lists them, and the reply is
+  // the agent's own words. Reading it therefore needs the same root/cwd match as
+  // starting a run. The fake controller below returns the real shapes measured from
+  // the host (list → { items }, inspect → { events }).
+  const FOREIGN = mkdtempSync(join(tmpdir(), 'dsh-novel-foreign-'))
+  services.sessionController = {
+    async list() {
+      return { items: [{ sessionId: 'session-test-1', cwd: root, running: false, blank: false, agentAvailable: true }] }
+    },
+    async inspect() {
+      return {
+        events: [
+          { seq: 1, type: 'user/message', data: {} },
+          { seq: 2, type: 'assistant/message', data: { message: { content: [{ type: 'text', text: '未公开的正文' }] } } },
+        ],
+      }
+    },
+    async modelCatalog() {
+      return { default: null }
+    },
+    async cancel() {},
+  }
+  try {
+    await check('the agent transcript requires a root', async () => {
+      const r = await call('GET', '/agent/result?sessionId=session-test-1')
+      assert(r.status === 400, `no root must be a 400, got ${r.status}: ${r.text.slice(0, 160)}`)
+      assert(r.json.code === 'root-required', `wrong code: ${r.json.code}`)
+    })
+
+    await check('the agent transcript is refused for another project', async () => {
+      const r = await call('GET', `/agent/result?sessionId=session-test-1&root=${encodeURIComponent(FOREIGN)}`)
+      assert(r.status === 409, `a foreign root must be refused, got ${r.status}: ${r.text.slice(0, 160)}`)
+      assert(r.json.code === 'session-wrong-workspace', `wrong code: ${r.json.code}`)
+    })
+
+    await check('the agent transcript is readable for its own project', async () => {
+      const r = await call('GET', `/agent/result?sessionId=session-test-1&root=${encodeURIComponent(root)}`)
+      assert(r.status === 200, `expected 200, got ${r.status}: ${r.text.slice(0, 160)}`)
+      assert(r.json.text === '未公开的正文', `wrong text: ${r.json.text}`)
+    })
+  } finally {
+    delete services.sessionController
+    rmSync(FOREIGN, { recursive: true, force: true })
+  }
 } finally {
   server.close()
   rmSync(root, { recursive: true, force: true })
