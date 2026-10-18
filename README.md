@@ -7,7 +7,7 @@
 
 1. **DSH 插件**（`lib/` + `client/`）—— 给作者用的界面与项目读写
 2. **三个技能**（`.dsh/skills/`）—— 给 AI 用的写作与校验指令
-3. **作品数据**（`novel/`）—— 两边共读共写的同一份小说
+3. **作品数据**（`novel/`）—— 两边共读共写的同一份小说，**只在本机，不纳入 Git**
 
 插件是"人侧"，技能是"AI 侧"，两者靠 `novel/` 里的同一份数据耦合。AI 写好的章节，界面能直接看到；界面上改的设定，AI 下次写作就能读到。
 
@@ -104,7 +104,7 @@ tools\run.cmd security-check.mjs <http://127.0.0.1:端口/dsh-novel> <一个新�
 │   ├── novel-writer/         正文写作
 │   ├── novel-consistency/    一致性校验
 │   └── novel-style/          文风控制
-├── novel/                    作品数据（示例/实例项目）
+├── novel/                    本地作品数据（.gitignore 忽略，不随仓库分发）
 │   ├── setting/              世界、地点、人物、组织、物品、地图
 │   ├── outline/              时间轴、剧情大纲
 │   ├── draft/                章节正文（Markdown + front matter）
@@ -129,6 +129,10 @@ tools\run.cmd security-check.mjs <http://127.0.0.1:端口/dsh-novel> <一个新�
 
 **用例数只写在上面「测试」一节**（`client-selftest` 会解析它与真实运行数对账）；其余地方每套跑完自己打印
 （`OK  N/N checks passed`）。这里只写每套在测什么。
+
+**`novel/` 不在版本库里。** `.gitignore` 忽略整个目录，`git add -A` 不会带上它；
+插件、技能、测试与文档都不依赖仓库里的作品数据（测试一律用临时目录）。
+想给作品做版本管理，请用**私有仓库**或单独的工作树，不要把它加回这个公开仓库。
 
 ## 一次真实的数据丢失，以及它换来的保险
 

@@ -1479,10 +1479,19 @@ check('the package manifest promises only files that exist', () => {
       junk.length === 0,
       `these generated files are tracked and would be pushed: ${junk.join(', ')} — \`git rm --cached\` them`,
     )
-    // The author's own content must still be tracked: excluding the churn must not exclude the work.
+    // THE AUTHOR'S NOVEL IS PRIVATE DATA, NOT PART OF THE REPOSITORY.
+    //
+    // It used to be the opposite rule ("the author's chapters must stay tracked"), which meant a
+    // routine `git add -A` would publish prose the author never chose to share. The repo is the
+    // plugin; `novel/` lives on the author's disk only. Both halves are asserted: nothing under
+    // novel/ is tracked, and .gitignore still covers it.
     assert(
-      tracked.some((path) => path.startsWith('novel/') && path.endsWith('.md')),
-      'the author\'s chapters must stay tracked — only the generated backups are excluded',
+      !tracked.some((path) => path.startsWith('novel/')),
+      'novel/ is the author\'s private work and must not be tracked; run `git rm -r --cached novel`',
+    )
+    assert(
+      /^novel\/$/m.test(readFileSync(join(ROOT, '.gitignore'), 'utf8')),
+      '.gitignore must keep ignoring novel/, or the next `git add -A` would publish the novel',
     )
   }
 })
