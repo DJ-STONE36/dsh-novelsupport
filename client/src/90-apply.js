@@ -101,6 +101,7 @@ exports.__test = {
   mintId,
   panelIdFor,
   isBlank,
+  projectRootFromWorkspaces,
   projectStore,
   api,
   withoutBlankKeys,

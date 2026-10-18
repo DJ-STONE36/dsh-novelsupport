@@ -16,13 +16,18 @@ function ProjectBar(props) {
   const workspaces = state.data?.workspaces ?? []
   const available = state.data?.available !== false
 
-  // Convenience, not magic: with exactly one initialized project there is
-  // nothing to choose, so opening on it beats showing an empty picker.
+  // Convenience, not magic — AND REPAIR, not only first run.
+  //
+  // A saved root that is no longer among the workspaces is the rename case: the
+  // folder moved, localStorage kept the OLD absolute path, every request answers
+  // 400 root-missing, and the panel looks dead with no way out. Selecting the sole
+  // initialized novel project repairs it; with several, show the picker instead of
+  // guessing. `projectRootFromWorkspaces` holds the decision so it can be tested.
   react.useEffect(() => {
-    if (!isBlank(root) || state.loading || !available) return
-    const initialized = workspaces.filter((workspace) => workspace.project.initialized)
-    if (initialized.length === 1) setRoot(initialized[0].path)
-  }, [root, state.loading, available, workspaces.length, setRoot])
+    if (state.loading) return
+    const next = projectRootFromWorkspaces(root, workspaces, available)
+    if (next !== undefined) setRoot(next)
+  }, [root, state.loading, available, workspaces, setRoot])
 
   const selected = workspaces.find((workspace) => workspace.path === root) ?? null
 

@@ -46,7 +46,7 @@ dsh plugin --profile desktop add ./dsh-novelsupport-0.1.0.tgz
   **没有东西可评估**，也就不会因为宿主升级而被迫逐行禁用。
 - **不需要给宿主打补丁。** 「交给 agent 写这一章」走的是 `resolveAgent` + `followup`，
   不碰 `sessionController.prompt`（那条路需要改已安装的 app.asar）。
-- **三栏界面 + 地图 + 时间轴 + 关系网** 这些都在客户端，离线自测覆盖 247 项。
+- **三栏界面 + 地图 + 时间轴 + 关系网** 这些都在客户端，离线自测覆盖 248 项。
 
 ## 安全模型
 
@@ -73,7 +73,7 @@ dsh plugin --profile desktop add ./dsh-novelsupport-0.1.0.tgz
 
 ## 测试
 
-四套自测共 **435** 项：`impl` 97 项（纯逻辑）· `api` 81 项（真实 HTTP）· `client` 247 项（纯函数 + 源码结构审计）· `live` 10 项（真项目、真写盘）。
+四套自测共 **436** 项：`impl` 97 项（纯逻辑）· `api` 81 项（真实 HTTP）· `client` 248 项（纯函数 + 源码结构审计）· `live` 10 项（真项目、真写盘）。
 
 运行方式见下面的「怎么跑这些测试」。对运行中的宿主做安全复验：
 

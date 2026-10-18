@@ -4319,6 +4319,23 @@ check('a blank stored root loads as no selection, not as an empty string', () =>
   projectStore.set(null)
 })
 
+check('a saved root that the workspace list no longer knows is repaired', () => {
+  // The live failure this pins: the repository directory was renamed, localStorage
+  // still held the OLD absolute path, every request answered `400 root does not
+  // exist`, and the panel looked broken. The old effect only ran for a BLANK root,
+  // so a stale non-blank value was never repaired and the UI offered no way out.
+  const { projectRootFromWorkspaces } = plugin.__test
+  const workspace = (path, initialized) => ({ path, project: { initialized } })
+  const one = [workspace('D:/new', true), workspace('D:/other', false)]
+  assert(projectRootFromWorkspaces(null, one, true) === 'D:/new', 'a blank root opens the only novel project')
+  assert(projectRootFromWorkspaces('D:/old', one, true) === 'D:/new', 'a stale root is repaired to the only novel project')
+  assert(projectRootFromWorkspaces('D:/new', one, true) === undefined, 'a known root is left alone')
+  const two = [workspace('D:/a', true), workspace('D:/b', true)]
+  assert(projectRootFromWorkspaces('D:/old', two, true) === null, 'with two projects a stale root shows the picker instead of guessing')
+  assert(projectRootFromWorkspaces(null, two, true) === undefined, 'a blank root with two projects stays blank')
+  assert(projectRootFromWorkspaces('D:/old', one, false) === undefined, 'no workspace registry means no guessing')
+})
+
 check('api() preserves the query string', () => {
   // Regression guard for a live failure that hid for two phases: the helper
   // returned `new URL(...).pathname`, so every query-bearing request lost its

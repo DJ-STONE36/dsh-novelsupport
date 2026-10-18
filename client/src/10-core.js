@@ -112,6 +112,40 @@ function isBlank(value) {
   return value === null || value === undefined || String(value).trim() === ''
 }
 
+/**
+ * Which project root a freshly-loaded workspace list implies.
+ *
+ * Returns:
+ *   - `undefined` — leave the current selection alone (it is fine, or the list
+ *     is unavailable and guessing would be worse);
+ *   - a path — select it;
+ *   - `null` — show the picker.
+ *
+ * WHY THIS EXISTS. `localStorage` stores an absolute path, and the workspace
+ * directory can be renamed (this repository was: `my-project` →
+ * `dsh-novelsupport`). The saved path then points at a directory that no longer
+ * exists, every request answers `400 root does not exist`, and the UI looks
+ * broken — but the old effect only ran for a BLANK root, so a stale non-blank
+ * value was never repaired and there was no way out from the interface.
+ *
+ * A stale root is only replaced automatically when exactly ONE workspace has a
+ * novel project; with several, choosing for the author would be a guess.
+ *
+ * @param root - current selection (may be null/blank).
+ * @param workspaces - rows from `GET /workspaces`.
+ * @param available - false when the host composes no workspaceRegistry.
+ * @returns {string|null|undefined} see above.
+ */
+function projectRootFromWorkspaces(root, workspaces, available) {
+  if (available === false) return undefined
+  const list = Array.isArray(workspaces) ? workspaces : []
+  if (list.length === 0) return undefined
+  if (!isBlank(root) && list.some((workspace) => workspace?.path === root)) return undefined
+  const initialized = list.filter((workspace) => workspace?.project?.initialized === true)
+  if (initialized.length === 1) return initialized[0].path
+  return isBlank(root) ? undefined : null
+}
+
 const projectStore = {
   root: null,
   listeners: new Set(),
