@@ -6,7 +6,8 @@
  * one command away rather than buried in a conversation. It talks only to the plugin's own
  * routes, so it needs no GUI, no credential, and no knowledge of the host's internals.
  *
- * Currently expected to report BLOCKED. See docs/host-bug-session-controller-prompt.md.
+ * Currently expected to report BLOCKED. The host-side analysis is kept in the
+ * maintainer's private notes (local paths; not distributed with the repository).
  *
  * Usage: node tools/agent-smoke.mjs [--root <projectDir>] [--session <sessionId>]
  *
@@ -83,7 +84,7 @@ if (started.status !== 202) {
     console.log('\n  This is the known host limitation, not a problem with this project:')
     console.log('  `sessionController.prompt` requires an AbortSignal that its own argument')
     console.log('  serialization rejects, so no argument form works. Six were measured.')
-    console.log('  Details: docs/host-bug-session-controller-prompt.md')
+    console.log('  Details: maintainer\'s private notes (not in this repository)')
   }
   process.exit(1)
 }

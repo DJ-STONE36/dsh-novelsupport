@@ -9,7 +9,12 @@
  * fetch sends exactly the bytes it was given.
  *
  * Run: node tools/live-check.mjs [root]
- *   root defaults to <cwd>/.verify and must be an existing directory.
+ *   root defaults to <cwd>/.verify; if that already holds a project the script switches to a
+ *   timestamped <cwd>/.verify/live-<time> instead of refusing (see the note below).
+ *
+ * BASE comes from DSH_NOVEL_BASE, else from DSH_WEB_URL's origin + /dsh-novel, else the
+ * historical default port. The host port changes on every restart, so an unreachable BASE is
+ * diagnosed as a port problem before any check runs rather than as ten red `fetch failed` lines.
  *
  * SAFETY: this script creates a project and writes chapters, so it must never be pointed at a
  * root that already holds one. Passing the repository root is an easy mistake — it takes an
@@ -19,16 +24,62 @@
  * existing project.
  */
 
-import { existsSync, mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { existsSync, mkdirSync, readFileSync } from 'node:fs'
 import { join } from 'node:path'
 
-const BASE = process.env.DSH_NOVEL_BASE ?? 'http://127.0.0.1:19387/dsh-novel'
-const root = process.argv[2] ?? join(process.cwd(), '.verify')
+function resolveBase() {
+  const explicit = process.env.DSH_NOVEL_BASE
+  if (typeof explicit === 'string' && explicit.trim() !== '') return explicit.trim().replace(/\/+$/, '')
+  const web = process.env.DSH_WEB_URL
+  if (typeof web === 'string' && web.trim() !== '') {
+    try {
+      const url = new URL(web)
+      return `${url.protocol}//${url.host}/dsh-novel`
+    } catch {
+      /* fall through to the default */
+    }
+  }
+  return 'http://127.0.0.1:19387/dsh-novel'
+}
+
+const BASE = resolveBase()
+const explicitRoot = process.argv[2]
+let root = explicitRoot ?? join(process.cwd(), '.verify')
+
+// THE OLD REFUSAL WAS CORRECT BUT UNHELPFUL: the default root is a scratch directory, so a
+// second run in a row hit `exit 2` with a message about pointing somewhere else. Pick a fresh
+// scratch root automatically for the DEFAULT (never for an explicit path — that one stays
+// strict, because a typo there must not create a project somewhere surprising).
+if (explicitRoot === undefined && existsSync(join(root, 'novel', 'project.json'))) {
+  const stamp = new Date().toISOString().replace(/[:.]/g, '-')
+  root = join(process.cwd(), '.verify', `live-${stamp}`)
+  console.log(`note: the default .verify already holds a project; using a fresh root: ${root}`)
+}
 
 if (existsSync(join(root, 'novel', 'project.json'))) {
   console.error(`refusing to run: ${root} already contains a novel project (novel/project.json).`)
   console.error('This check creates a project and writes chapters. Point it at a scratch')
-  console.error('directory instead — the default is <cwd>/.verify, which is what you want.')
+  console.error('directory instead, e.g.  tools\\run.cmd live-check.mjs D:\\scratch\\live-run')
+  process.exit(2)
+}
+
+if (explicitRoot !== undefined && !existsSync(root)) {
+  console.error(`refusing to run: ${root} does not exist.`)
+  console.error('Create it first — this check writes a real project there:')
+  console.error(`  New-Item -ItemType Directory -Force "${root}" | Out-Null`)
+  process.exit(2)
+}
+
+// PREFLIGHT. A moved port used to surface as ten `fetch failed` checks, which reads like the
+// plugin is broken. Diagnose it once, in the operator's terms, before the suite.
+try {
+  const ping = await fetch(`${BASE}/health`)
+  if (!ping.ok) throw new Error(`HTTP ${ping.status}`)
+} catch (error) {
+  console.error(`cannot reach the plugin at ${BASE}: ${error?.message ?? error}`)
+  console.error('The host port changes on every restart. Set DSH_NOVEL_BASE to the CURRENT')
+  console.error('Web UI origin plus /dsh-novel, for example:')
+  console.error(`  $env:DSH_NOVEL_BASE='http://127.0.0.1:<current-port>/dsh-novel'`)
   process.exit(2)
 }
 
@@ -70,7 +121,8 @@ async function call(method, path, body) {
   return { status: response.status, json, text }
 }
 
-if (existsSync(root)) rmSync(root, { recursive: true, force: true })
+// NOTHING IS DELETED HERE. The old version wiped the root first, which would have destroyed
+// whatever else an operator pointed it at; the project guard above is the actual protection.
 mkdirSync(root, { recursive: true })
 const projectDir = join(root, 'novel')
 

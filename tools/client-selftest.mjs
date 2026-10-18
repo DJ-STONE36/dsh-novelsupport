@@ -6933,19 +6933,19 @@ check('the transcript read names its project, and the route checks it', () => {
   )
 })
 
-check('MAINTENANCE.md still reports the real test distribution', () => {
-  // The doc calls itself the authoritative checklist for whoever takes over next, and it states both a
-  // total and a per-suite breakdown. Those numbers drifted silently — they said 409 (impl 86) while the
-  // suites actually ran 411 — and a stale count is worse than none, because it makes a real gap look like
-  // a rounding difference. Parse both statements here; reconcile them against reality at the end of the
-  // run, which is the only place this file's own real count exists.
-  const doc = readFileSync(join(ROOT, 'docs', 'MAINTENANCE.md'), 'utf8')
+check('README.md still reports the real test distribution', () => {
+  // The public README states both a total and a per-suite breakdown (the forensic notes that used to
+  // carry them are no longer shipped with the repo). Those numbers can drift silently — they once said
+  // 409 (impl 86) while the suites actually ran 411 — and a stale count is worse than none, because it
+  // makes a real gap look like a rounding difference. Parse both statements here; reconcile them against
+  // reality at the end of the run, which is the only place this file's own real count exists.
+  const doc = readFileSync(join(ROOT, 'README.md'), 'utf8')
   const dist = doc.match(/`impl`\s*(\d+)\s*项[^·]*·\s*`api`\s*(\d+)\s*项[^·]*·\s*`client`\s*(\d+)\s*项[^·]*·\s*`live`\s*(\d+)\s*项/)
-  assert(dist !== null, 'MAINTENANCE.md must still state the four-suite distribution')
+  assert(dist !== null, 'README.md must still state the four-suite distribution')
   documentedBreakdown = dist.slice(1).map(Number)
 
-  const totalLine = doc.match(/#\s*跑四套测试（(\d+)\s*项/)
-  assert(totalLine !== null, 'MAINTENANCE.md must still state the suite total in section 1')
+  const totalLine = doc.match(/四套自测共\s*\*\*(\d+)\*\*\s*项/)
+  assert(totalLine !== null, 'README.md must still state the suite total in the 测试 section')
   documentedTotal = Number(totalLine[1])
 
   // The two statements must at least agree with each other.
@@ -6964,13 +6964,13 @@ globalThis.window = originalWindow
 if (documentedBreakdown !== null) {
   if (documentedBreakdown[2] !== passed) {
     failures.push({
-      name: 'MAINTENANCE.md client count',
+      name: 'README.md client count',
       message: `documents ${documentedBreakdown[2]} client checks, but this suite ran ${passed}`,
     })
   }
   if (documentedTotal !== documentedBreakdown.reduce((sum, n) => sum + n, 0)) {
     failures.push({
-      name: 'MAINTENANCE.md total',
+      name: 'README.md total',
       message: `states ${documentedTotal} checks, but its own distribution sums to ${documentedBreakdown.reduce((sum, n) => sum + n, 0)}`,
     })
   }

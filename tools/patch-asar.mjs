@@ -1,7 +1,8 @@
 /**
  * Patch the installed DSH app.asar to fix `sessionController.prompt`.
  *
- * The defect, located by reading the archive (see docs/host-bug-session-controller-prompt.md):
+ * The defect, located by reading the archive (analysis kept in the maintainer's
+ * private notes — local paths; not distributed with the repository):
  * `prompt(request, signal)` calls `signal.throwIfAborted()` with no null check, while its RPC
  * declaration lists only `request` under `parameters` and `signal` under
  * `cancellation: { parameter: 'signal' }` — a framework parameter the caller cannot supply. Every

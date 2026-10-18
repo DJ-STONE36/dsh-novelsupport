@@ -1,9 +1,7 @@
 # 小说辅助插件
 
-> **接手这个仓库？先读 [`docs/MAINTENANCE.md`](docs/MAINTENANCE.md)。**
-> 它写了：三十秒上手（四条命令）、架构地图（13 个宿主模块 / 15 个客户端片段）、
-> **八条必须遵守的不变式**、验证纪律、这台机器与沙箱的坑、当前状态，
-> 以及第 9 节——**换一个会话接手时可以直接粘贴的开场白**。
+> **接手这个仓库？** 先读 [docs/data-model.md](docs/data-model.md)，以及下面的「安全模型」与「测试」。
+> 维护者的交接记录、崩溃取证与沙箱笔记含本机路径，**不随仓库分发**；它们只在维护者本地的私有目录里。
 
 面向长篇小说创作的 DeepSeek Harness 插件。仓库同时装三样东西：
 
@@ -29,8 +27,8 @@ dsh plugin --profile desktop add ./dsh-novelsupport
 dsh plugin --profile desktop add ./dsh-novelsupport-0.1.0.tgz
 ```
 
-> **仓库名与包名不一致**（仓库 `my-project`，包 `dsh-novelsupport`）。安装命令以上面为准：
-> 包名决定 `node_modules` 里的目录名与插件行解析，仓库名只影响从哪里拉。
+> **仓库名与包名都是 `dsh-novelsupport`，插件 id 仍是 `dsh-novel`**（路由前缀、写头、技能命名空间）。
+> 安装命令以包名为准：包名决定 `node_modules` 里的目录名与插件行解析。
 
 装完**重启 DSH**，`GET /dsh-novel/health` 应返回 `{"ok":true}`，侧栏出现「小说」入口。
 （不想用 CLI 的话，`tools\package-plugin.mjs` 生成的 `INSTALL.md` 写的是手工解包进
@@ -49,6 +47,39 @@ dsh plugin --profile desktop add ./dsh-novelsupport-0.1.0.tgz
 - **不需要给宿主打补丁。** 「交给 agent 写这一章」走的是 `resolveAgent` + `followup`，
   不碰 `sessionController.prompt`（那条路需要改已安装的 app.asar）。
 - **三栏界面 + 地图 + 时间轴 + 关系网** 这些都在客户端，离线自测覆盖 247 项。
+
+## 安全模型
+
+插件与宿主同进程，但它的 HTTP 面**比宿主自己的路由更靠外**：`/dsh-novel/**` 是
+`webServer.register()` 挂的前缀路由，**不在**宿主的 token 校验与 Host/Origin 栅栏之后。
+所以插件自己实现了同等的栅栏：
+
+- **Host** 必须是 loopback（`localhost` / `127/8` / `::1`）、宿主监听地址，或配置的 `trustedHosts`；
+- **`Sec-Fetch-Site: cross-site`** 一律拒绝；
+- 带 **Origin** 的请求必须与 Host 同 authority；
+- 没有 `webStartup` 服务时退化为**只允许 loopback**。
+
+其他边界：
+
+- **写请求**还要 `x-dsh-novel: 1`（挡住普通跨源表单）——它是第二层，不是唯一防线。
+- **所有路径**都过 `paths.resolveInside`：拒绝 `..`、绝对路径、盘符、UNC、NUL、ADS、设备名，
+  并用 `realpathSync.native` 挡住 junction/symlink 逃逸。
+- **章节 front matter** 按不可信输入解析：禁用 YAML 别名（`maxAliases: 0`）+ 128 KB 上限。
+- **SVG 资源**带 `CSP: sandbox` 与 `nosniff`；地图用 `<image>` 渲染，直接导航也不会执行脚本。
+- **整文档写入**可带 `expectedMtimeMs`，不匹配返回 409 `document-changed`，避免静默覆盖 agent
+  或另一个窗口的改动；`.prev` 是保险，不是合并。
+- **转录**（`/agent/result`）要求 `root` 且必须等于会话的 `cwd`；会话 id 本身不被当作权限。
+- agent 由**宿主服务**驱动，插件不保存、不转发任何凭证。
+
+## 测试
+
+四套自测共 **435** 项：`impl` 97 项（纯逻辑）· `api` 81 项（真实 HTTP）· `client` 247 项（纯函数 + 源码结构审计）· `live` 10 项（真项目、真写盘）。
+
+运行方式见下面的「怎么跑这些测试」。对运行中的宿主做安全复验：
+
+```
+tools\run.cmd security-check.mjs <http://127.0.0.1:端口/dsh-novel> <一个新的空目录>
+```
 
 ## 目录结构
 
@@ -87,6 +118,7 @@ dsh plugin --profile desktop add ./dsh-novelsupport-0.1.0.tgz
     ├── api-selftest.mjs      宿主端接口自测，本地起 http 服务
     ├── client-selftest.mjs   客户端渲染自测，react-dom/server
     ├── live-check.mjs        对运行中的宿主做端到端验证
+    ├── security-check.mjs    对运行中的宿主复验栅栏 / 转录 / 并发 / SVG 加固
     ├── audit-sweep.mjs       机械式体检：错误码覆盖、未用导出、跨端常量漂移
     ├── path-probe.mjs        对运行中的宿主做路径安全探测（只读）
     ├── patch-asar.mjs        就地修补宿主 app.asar（默认预演；改的是已安装程序，需先关 DSH）
@@ -95,7 +127,7 @@ dsh plugin --profile desktop add ./dsh-novelsupport-0.1.0.tgz
     └── snapshot-novel.mjs    记录 novel/ 的哈希，核对一次 agent 运行究竟改了什么
 ```
 
-**用例数不写在这里**，因为它们每次加测试都会变，写下来就是一处必然过期的数字；每套跑完会自己打印
+**用例数只写在上面「测试」一节**（`client-selftest` 会解析它与真实运行数对账）；其余地方每套跑完自己打印
 （`OK  N/N checks passed`）。这里只写每套在测什么。
 
 ## 一次真实的数据丢失，以及它换来的保险
@@ -426,7 +458,7 @@ node tools/live-check.mjs      # 端到端：需宿主在运行
 
 `/agent/prompt` 保留在代码里，用**语义正确的形式**调用，并把这个条件报成独立的 `agent-prompt-unsupported`（501），这样宿主一旦修好，这里不用改就会通。
 
-**报给宿主的问题写成了独立文件**：[docs/host-bug-session-controller-prompt.md](docs/host-bug-session-controller-prompt.md) —— 最小复现、六种形式的实测表、推断、以及建议的修法（让 `signal` 可选并由服务端自建默认值;取消走已有的 `cancel(id)`）。
+**报给宿主的问题写成了独立记录**（含本机路径与宿主源码摘录，**不随仓库分发**）—— 最小复现、六种形式的实测表、推断、以及建议的修法（让 `signal` 可选并由服务端自建默认值；取消走已有的 `cancel(id)`）。
 
 **验证手段**：`node tools/agent-smoke.mjs`。只依赖本插件已注册的路由，不需要界面、不需要凭据。现在输出 `BLOCKED` 并附上诊断;宿主修好后它会走完 `prompt → status → result` 并打印 agent 的回复与用量，以 0 退出。
 
@@ -551,7 +583,7 @@ tools\run.cmd agent-smoke.mjs
 
 现在输出 `BLOCKED`；修好后应当走完 `prompt → status → result`、打印 agent 的回复与用量、以 0 退出。
 
-详见 [docs/host-bug-session-controller-prompt.md](docs/host-bug-session-controller-prompt.md)。
+宿主侧的诊断细节在维护者的私有记录里（不随仓库分发）。
 
 ## 当前状态
 
@@ -577,7 +609,7 @@ tools\run.cmd agent-smoke.mjs
   - **两个原因，缺一不可**：
     1. **宿主缺陷（已打补丁）**：`prompt(request, signal)` 解引用一个它不可能拿到的 signal。补丁让 `signal` 可选，单参数调用才成立
     2. **我们漏传 `requestId`**（已修）：宿主用 `requestId` 构造 `source.rpcId`，而会话日志要求**无损 JSON 可序列化**——值为 `undefined` 的字段会被拒绝（JSON 会丢掉这个键）。于是 `rpcId: undefined` 让整个 `agent/inbox/spliced` 事件写不进去，报成 `session/agent-busy` + "非 JSON 可序列化"
-  - **第 2 条我一度误判为宿主缺陷并写进了报告，已改正**：`docs/host-bug-session-controller-prompt.md` 现在写明它是我们少传一个字符串，并附上宿主源码与日志校验的原文
+  - **第 2 条我一度误判为宿主缺陷并写进了报告，已改正**：私有记录里写明了它是我们少传一个字符串，并附上宿主源码与日志校验的原文
   - **实测通过**：`POST /agent/prompt` → **202** → `running=true` → 一轮跑完 → `assistant/message` → `turn/end` → 回复读回（`text="收到"`）。回归测试守住 `requestId`（种回验证会失败）
   - 工具：`tools\apply-host-patch.cmd`（等 DSH 退出后自动打补丁并回读验证）、`tools\run.cmd agent-smoke.mjs`
 - [ ] Phase 6 · 打磨

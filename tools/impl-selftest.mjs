@@ -1435,12 +1435,24 @@ check('the package manifest promises only files that exist', () => {
     assert(pkg.files.includes(entry), `package.json's files must list ${entry}, which the packager ships`)
     assert(existsSync(join(ROOT, entry)), `the packager ships ${entry}, which must exist`)
   }
-  // AND THE MACHINE-SPECIFIC NOTES MUST NOT SHIP. They are forensics about THIS installation, not
-  // documentation for a user, and `"docs"` as a directory would sweep them in.
-  for (const privateNote of ['docs/MAINTENANCE.md', 'docs/2026-10-16-启动故障复核.md', 'docs/2026-10-16-安装崩溃-三重身份.md', 'docs/host-bug-session-controller-prompt.md']) {
+  // AND THE MACHINE-SPECIFIC NOTES MUST NOT SHIP — nor sit in the repository at all since
+  // 2026-10-19: they describe THIS installation (profile paths, backup names, crash scenes), so
+  // they now live in the maintainer's private directory outside the checkout.
+  const PRIVATE_NOTES = [
+    'docs/MAINTENANCE.md',
+    'docs/HANDOVER-2026-10-16.md',
+    'docs/2026-10-16-启动故障复核.md',
+    'docs/2026-10-16-安装崩溃-三重身份.md',
+    'docs/host-bug-session-controller-prompt.md',
+  ]
+  for (const privateNote of PRIVATE_NOTES) {
     assert(
       !pkg.files.includes(privateNote) && !shipped.includes(privateNote),
       `${privateNote} documents this machine and must not be distributed`,
+    )
+    assert(
+      !existsSync(join(ROOT, privateNote)),
+      `${privateNote} documents this machine and must stay outside the repository`,
     )
   }
   // The packager itself must be there, and must not package a red tree.
