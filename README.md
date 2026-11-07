@@ -24,7 +24,7 @@ dsh plugin --profile desktop add github:DJ-STONE36/dsh-novelsupport
 
 # 从本地 checkout 或 tarball
 dsh plugin --profile desktop add ./dsh-novelsupport
-dsh plugin --profile desktop add ./dsh-novelsupport-0.1.0.tgz
+dsh plugin --profile desktop add ./dsh-novelsupport-0.1.1.tgz
 ```
 
 > **仓库名与包名都是 `dsh-novelsupport`，插件 id 仍是 `dsh-novel`**（路由前缀、写头、技能命名空间）。
@@ -42,8 +42,10 @@ dsh plugin --profile desktop add ./dsh-novelsupport-0.1.0.tgz
 - **数据是纯文件，不是数据库。** 设定、大纲、章节都在项目目录的 `novel/` 下
   （JSON + Markdown），可以直接用 Git 管理、用任意编辑器改、坏了能手修。
   另一份实现把 canon 存进 `.dsh-novel/pglite` 数据库。
-- **不依赖任何宿主内部包。** `peerDependencies` 为空，所以 DSH 的插件兼容性检查
-  **没有东西可评估**，也就不会因为宿主升级而被迫逐行禁用。
+- **不依赖任何宿主内部包。** `peerDependencies` 为空，所以没有包版本要评估；只有一条
+  `engines.dsh`（`>=0.2.0-rc.1`）声明最低宿主版本。它写在 **`package.json`** 里——宿主
+  的评估器读的是这个文件——再由 `dsh.plugin.json` 镜像一份，自测断言两者一致。
+  预发布版本按严格 semver 不在范围里，宿主用 `includePrerelease` 放行，故 0.2.x 的 rc 都能装。
 - **不需要给宿主打补丁。** 「交给 agent 写这一章」走的是 `resolveAgent` + `followup`，
   不碰 `sessionController.prompt`（那条路需要改已安装的 app.asar）。
 - **三栏界面 + 地图 + 时间轴 + 关系网** 这些都在客户端，离线自测覆盖 248 项。

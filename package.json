@@ -1,6 +1,6 @@
 {
   "name": "dsh-novelsupport",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "type": "module",
   "description": "Novel-writing workspace for DeepSeek Harness: a three-pane UI with map, timeline, character/place/item/organisation graph, chapter editor, full-book export and plain-text import — stored as plain files in the project.",
   "main": "lib/index.js",
@@ -20,6 +20,9 @@
         "@deepseek-ai/dsh-client-ui-layout"
       ]
     }
+  },
+  "engines": {
+    "dsh": ">=0.2.0-rc.1"
   },
   "dependencies": {
     "js-yaml": "^5.4.3"

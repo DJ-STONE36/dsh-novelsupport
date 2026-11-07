@@ -1401,6 +1401,24 @@ check('the package manifest promises only files that exist', () => {
   )
   assert(inserted.id === 'dsh-novel', 'the plugin id stays dsh-novel — it is the route prefix and the skill namespace')
   assert(typeof pkg.version === 'string' && pkg.version !== '', 'it has a version')
+  // THE TWO MANIFESTS MUST AGREE ON VERSION AND ON `engines.dsh`. The host's compatibility evaluator
+  // opens `package.json`, not `dsh.plugin.json` — when only the latter declared a floor, the evaluator
+  // read "no requirements" and could never hold an incompatible host accountable, while a registry
+  // reading `dsh.plugin.json` saw the floor. Nothing compared the files, so they were free to disagree;
+  // now a release bump that touches one has to touch the other.
+  const manifest = JSON.parse(readFileSync(join(ROOT, 'dsh.plugin.json'), 'utf8'))
+  assert(
+    manifest.version === pkg.version,
+    `dsh.plugin.json says ${manifest.version} but package.json says ${pkg.version}`,
+  )
+  assert(
+    typeof pkg.engines?.dsh === 'string' && pkg.engines.dsh !== '',
+    'package.json declares engines.dsh — the file the host evaluator actually reads',
+  )
+  assert(
+    manifest.engines?.dsh === pkg.engines?.dsh,
+    `the two manifests disagree on engines.dsh: ${JSON.stringify(manifest.engines?.dsh)} vs ${JSON.stringify(pkg.engines?.dsh)}`,
+  )
   assert(pkg.type === 'module', 'the host half is ESM')
   for (const [label, value] of [['main', pkg.main], ['dsh.bundle.patch', pkg.dsh?.bundle?.patch]]) {
     assert(typeof value === 'string' && value !== '', `package.json declares ${label}`)
