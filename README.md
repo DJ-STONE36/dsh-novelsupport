@@ -19,13 +19,21 @@
 # 从 npm（推荐：装的是预构建产物，不需要任何构建授权）
 dsh plugin --profile desktop add dsh-novelsupport
 
-# 从 GitHub（拉的是源码；本包已随仓库提供构建好的 lib/ 与 client/client.js，所以无需构建）
+# 从 GitHub Release 的附件装（与 npm 上是同一份预构建 tgz）
+# 页面：https://github.com/DJ-STONE36/dsh-novelsupport/releases/tag/v0.1.1
+curl -LO https://github.com/DJ-STONE36/dsh-novelsupport/releases/download/v0.1.1/dsh-novelsupport-0.1.1.tgz
+dsh plugin --profile desktop add ./dsh-novelsupport-0.1.1.tgz
+
+# 从 GitHub 源码（拉的是源码；本包已随仓库提供构建好的 lib/ 与 client/client.js，所以无需构建）
 dsh plugin --profile desktop add github:DJ-STONE36/dsh-novelsupport
 
 # 从本地 checkout 或 tarball
 dsh plugin --profile desktop add ./dsh-novelsupport
 dsh plugin --profile desktop add ./dsh-novelsupport-0.1.1.tgz
 ```
+
+Release 附件 `dsh-novelsupport-0.1.1.tgz` 为 255,883 B，sha256
+`9818f7f3dbdcd10c3d65602ce9ed1b82b3ee6103a9f622c39ebfe93c60284390`（已与本仓库同名 tgz 核对一致）。
 
 > **仓库名与包名都是 `dsh-novelsupport`，插件 id 仍是 `dsh-novel`**（路由前缀、写头、技能命名空间）。
 > 安装命令以包名为准：包名决定 `node_modules` 里的目录名与插件行解析。
