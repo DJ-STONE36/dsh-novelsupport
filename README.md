@@ -1,6 +1,6 @@
 # 小说辅助插件
 
-> **接手这个仓库？** 先读 [docs/data-model.md](docs/data-model.md)，以及下面的「安全模型」与「测试」。
+> **接手这个仓库？** 先读 [AGENTS.md](AGENTS.md)（开工步骤与两条禁令），再读 [docs/data-model.md](docs/data-model.md)，以及下面的「安全模型」与「测试」。
 > 维护者的交接记录、崩溃取证与沙箱笔记含本机路径，**不随仓库分发**；它们只在维护者本地的私有目录里。
 
 面向长篇小说创作的 DeepSeek Harness 插件。仓库同时装三样东西：
@@ -85,7 +85,11 @@ Release 附件 `dsh-novelsupport-0.1.1.tgz` 为 255,883 B，sha256
 
 四套自测共 **436** 项：`impl` 97 项（纯逻辑）· `api` 81 项（真实 HTTP）· `client` 248 项（纯函数 + 源码结构审计）· `live` 10 项（真项目、真写盘）。
 
-运行方式见下面的「怎么跑这些测试」。对运行中的宿主做安全复验：
+**统一入口：`npm test`** —— 一条命令跑完 `impl` + `api` + `client` 三套离线自测（需要运行中宿主的两套用 `npm run test:live` / `npm run security`）。运行细节见下面的「怎么跑这些测试」。
+
+同一组三套也随每次 push 与 PR 在 GitHub Actions 上跑：`.github/workflows/selftest.yml`，Windows runner（本套测试刻意验证 junction 逃逸、`.cmd` 的 CRLF、盘符围栏，换到 Linux 就变成在验证另一件事），不跑需要宿主的两套。
+
+对运行中的宿主做安全复验：
 
 ```
 tools\run.cmd security-check.mjs <http://127.0.0.1:端口/dsh-novel> <一个新的空目录>
@@ -110,10 +114,12 @@ tools\run.cmd security-check.mjs <http://127.0.0.1:端口/dsh-novel> <一个新�
 ├── client/
 │   ├── src/                  浏览器侧源码，按序号拼接（10-core … 90-apply）
 │   └── client.js             **生成文件**，由 tools/build-client.mjs 拼出
-├── .dsh/skills/              三个技能（平铺）
+├── AGENTS.md                 交接地图：开工步骤与两条禁令（新会话先读这个）
+├── .dsh/skills/              四个技能（平铺）
 │   ├── novel-writer/         正文写作
 │   ├── novel-consistency/    一致性校验
-│   └── novel-style/          文风控制
+│   ├── novel-style/          文风控制
+│   └── novel-review/         评审（审一章能不能交）
 ├── novel/                    本地作品数据（.gitignore 忽略，不随仓库分发）
 │   ├── setting/              世界、地点、人物、组织、物品、地图
 │   ├── outline/              时间轴、剧情大纲
@@ -382,15 +388,18 @@ node tools/live-check.mjs      # 端到端：需宿主在运行
 
 `live-check.mjs` 刻意用 node 而非 PowerShell 发请求：Windows PowerShell 的 `Invoke-RestMethod -Body <string>` 会按系统 ANSI 代码页重新编码请求体，中文会变成乱码，从而冤枉插件。该脚本对标题做了**字节级** UTF-8 断言。
 
-## 三个技能的分工
+## 技能的分工
 
 | 技能 | 负责 | 输入 | 输出 |
 | --- | --- | --- | --- |
 | `novel-writer` | 情节落地：写正文 | `novel/setting/`、`novel/outline/` | `novel/draft/` 章节草稿 |
 | `novel-consistency` | 写了什么：查矛盾 | 设定 + 大纲 + 草稿 | 冲突报告（默认不改正文） |
 | `novel-style` | 怎么写：统一笔调 | 文风档案 | 文风规则 / 润色建议 |
+| `novel-review` | 能不能交：评审 | 本章 + 设定 + 大纲 + 文风档案 | 三档结论 + 可定位的修改意见（**不写正文**） |
 
 结构化校验由宿主端负责（悬空引用、成环、时间区间），语义一致性由 `novel-consistency` 负责（性格突变、伏笔未回收）。分工清楚，不重复。三个技能**已对齐真实数据格式**——见下。
+
+前三个是**写作侧**，`novel-review` 是**评审侧**：它回答"这一章现在能不能交"，只评审、不落笔，结构问题仍然交给宿主校验器与 `novel-consistency`。
 
 ## 三个技能写的是什么
 
@@ -478,7 +487,15 @@ node tools/live-check.mjs      # 端到端：需宿主在运行
 
 ## 怎么跑这些测试
 
-**这台机器的 `node` 不在 PATH 上**，所以 `node tools\xxx.mjs` 是跑不起来的。用仓库里的包装脚本，它会自己去找 node（先找 PATH，再找 `D:\dsh-home\dsh-runtimes\<版本>\dependencies\node\bin`，再找常见安装位置）：
+**日常一条命令：`npm test`** —— `package.json` 的 `scripts.test` 就是 `impl` + `api` + `client` 三套的顺序执行，任一套失败即返回非零。
+
+```sh
+npm test                        # impl + api + client，三套离线自测
+npm run test:live               # 端到端，需宿主在运行（默认写 <cwd>/.verify）
+npm run security -- <url> <空目录>   # 对运行中的宿主复验安全栅栏
+```
+
+`node` / `npm` **现在在这台机器的 PATH 上**（`C:\Program Files\nodejs`），所以 `node tools\xxx.mjs` 也能直接跑。但**当年不是这样**：那时 node 只在 DSH 运行时目录里，于是有了包装脚本 `tools\run.cmd`。它会自己去找 node（先找 PATH，再找 `D:\dsh-home\dsh-runtimes\<版本>\dependencies\node\bin`，再找常见安装位置），PATH 里找不到 node 时仍是兜底：
 
 ```
 tools\run.cmd agent-smoke.mjs

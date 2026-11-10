@@ -10,6 +10,11 @@
     "./cordis.patch.yml": "./cordis.patch.yml",
     "./package.json": "./package.json"
   },
+  "scripts": {
+    "test": "node tools/impl-selftest.mjs && node tools/api-selftest.mjs && node tools/client-selftest.mjs",
+    "test:live": "node tools/live-check.mjs",
+    "security": "node tools/security-check.mjs"
+  },
   "dsh": {
     "bundle": {
       "patch": "./cordis.patch.yml"

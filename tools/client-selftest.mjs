@@ -6572,12 +6572,12 @@ check('local drafts never contain the word undefined', () => {
 
 // --- the skills must describe the real format ---------------------------------
 //
-// The three SKILL.md files are the AI's only description of `novel/`. A wrong field name
+// The four SKILL.md files are the AI's only description of `novel/`. A wrong field name
 // there means the agent writes a document the validator rejects — or one it accepts and
 // the GUI cannot read. This is the same guard as the entity-vs-data-model test: the prose
 // cannot drift from the code without a failure.
 
-const skillNames = ['novel-writer', 'novel-consistency', 'novel-style']
+const skillNames = ['novel-writer', 'novel-consistency', 'novel-style', 'novel-review']
 const skillText = Object.fromEntries(
   skillNames.map((name) => [name, readFileSync(join(ROOT, '.dsh', 'skills', name, 'SKILL.md'), 'utf8')]),
 )

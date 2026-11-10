@@ -1,0 +1,49 @@
+# The offline self-tests, on every push and pull request.
+#
+# Why this file exists: the four suites are only worth their 436 assertions if something runs
+# them without a human remembering to. Before this, `npm test` was a pull you had to remember;
+# now a red run is a push you cannot ignore.
+#
+# Deliberately NOT run here:
+#   - `live-check` / `security-check` — they need a running DSH host, a real project and write
+#     access to disk. Their place is the author's machine, not a shared runner.
+#
+# Windows, not Linux, on purpose: the suite encodes Windows behaviour that Linux cannot
+# reproduce — the junction escape check (`symlinkSync(..., 'junction')` + `realpathSync.native`),
+# `.cmd` files that must stay CRLF, drive-letter path fences. A green Ubuntu run would prove a
+# different thing than the one this repo keeps breaking.
+
+name: selftest
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: selftest-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  selftest:
+    runs-on: windows-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          # Same major as the machine this was written on (v24), so a local green means a CI
+          # green. The suite uses modern `node:` APIs; do not drop below 20 without a run.
+          node-version: '24'
+
+      # There is no `package-lock.json` — the repo ships `pnpm-lock.yaml`, which npm cannot
+      # read, so `npm ci` has nothing to install from. Resolve from `package.json` instead of
+      # inventing a second lockfile; `npm install` is idempotent here (7 packages, no native
+      # builds, no install scripts).
+      - run: npm install --no-audit --no-fund
+
+      # `impl` + `api` + `client`, in that order, failing fast. `client-selftest` also parses
+      # the README's stated counts and fails if they drift from what actually ran.
+      - run: npm test
